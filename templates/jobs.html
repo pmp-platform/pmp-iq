@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Jobs · Platform Inspector{% endblock %}
+{% block content %}
+<h1 class="text-xl font-bold mb-4">Jobs</h1>
+
+<div data-tabs>
+  <div class="flex gap-1 border-b border-slate-200 mb-4">
+    <button data-tab="jobs" class="px-3 py-2 border-b-2 border-transparent">Configured jobs</button>
+    <button data-tab="executions" class="px-3 py-2 border-b-2 border-transparent">Executions</button>
+  </div>
+
+  <div data-panel="jobs">
+    <div class="flex items-center justify-end mb-2">
+      <button data-modal-open="job-modal" class="bg-slate-900 text-white rounded px-3 py-1.5">Add job</button>
+    </div>
+    <table class="w-full bg-white rounded-lg shadow border border-slate-200" id="jobs-table">
+      <thead class="text-left text-slate-500 border-b">
+        <tr><th class="p-2.5">Name</th><th>Type</th><th>Trigger</th><th>Enabled</th><th></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div data-panel="executions">
+    <table class="w-full bg-white rounded-lg shadow border border-slate-200" id="executions-table">
+      <thead class="text-left text-slate-500 border-b">
+        <tr><th class="p-2.5">Status</th><th>Trigger</th><th>Started</th><th>Finished</th><th></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Job modal -->
+<div id="job-modal" class="modal hidden fixed inset-0 bg-black/40 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-semibold">Add job</h3>
+      <button data-modal-close class="text-slate-400 hover:text-slate-600">✕</button>
+    </div>
+    <form id="job-form" class="space-y-3">
+      <input name="name" placeholder="Name" class="w-full border rounded px-3 py-2" required />
+      <select name="job_type" id="job-type" class="w-full border rounded px-3 py-2" required></select>
+      <p id="job-type-desc" class="text-xs text-slate-500"></p>
+      <select name="trigger_type" class="w-full border rounded px-3 py-2">
+        <option value="manual">Manual</option>
+        <option value="cron">Cron</option>
+      </select>
+      <input name="cron_expr" placeholder="Cron expression (when trigger = cron)" class="w-full border rounded px-3 py-2" />
+      <div id="ai-profile-field" class="hidden">
+        <select id="ai-profile" class="w-full border rounded px-3 py-2">
+          <option value="">No analysis (clone only)</option>
+        </select>
+        <p class="text-xs text-slate-500 mt-1">Pick an AI profile to analyze repositories into the platform model; leave as "clone only" to just clone them.</p>
+      </div>
+      <textarea name="config" id="job-config" placeholder='Config JSON (optional)' class="w-full border rounded px-3 py-2 font-mono text-xs" rows="2"></textarea>
+      <div class="flex items-center justify-between pt-1">
+        <span id="job-msg" class="text-xs"></span>
+        <div class="flex gap-2">
+          <button type="button" data-modal-close class="border rounded px-3 py-1.5">Cancel</button>
+          <button class="bg-slate-900 text-white rounded px-3 py-1.5">Save</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/assets/jobs.js?v={{ asset_version }}" defer></script>
+{% endblock %}

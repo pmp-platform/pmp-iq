@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Platform Inspector{% endblock %}</title>
+  <script src="/assets/vendor/tailwind.js?v={{ asset_version }}"></script>
+  <script src="/assets/vendor/jquery.min.js?v={{ asset_version }}"></script>
+  <script src="/assets/app.js?v={{ asset_version }}" defer></script>
+</head>
+<body class="bg-slate-50 text-slate-700 text-[13px] min-h-screen">
+  <div class="flex min-h-screen">
+    {% if current_user %}
+    <aside id="sidebar" class="w-52 shrink-0 bg-slate-900 text-slate-300 flex flex-col">
+      <a href="/" class="px-4 h-12 flex items-center font-semibold text-white border-b border-slate-800">
+        Platform&nbsp;Inspector
+      </a>
+      <nav class="flex-1 p-2 space-y-1">
+        <a href="/settings" data-nav="settings" class="block px-3 py-2 rounded hover:bg-slate-800">Settings</a>
+        <a href="/jobs" data-nav="jobs" class="block px-3 py-2 rounded hover:bg-slate-800">Jobs</a>
+        <a href="/platform" data-nav="platform" class="block px-3 py-2 rounded hover:bg-slate-800">Platform</a>
+      </nav>
+      <div class="p-3 border-t border-slate-800 flex items-center justify-between gap-2">
+        <span class="text-slate-400 truncate">{{ current_user }}</span>
+        <form method="post" action="/logout">
+          <button class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Logout</button>
+        </form>
+      </div>
+    </aside>
+    {% endif %}
+
+    <main class="flex-1 px-6 py-6 {% if not current_user %}flex items-center justify-center{% endif %}" data-active="{{ active_nav }}">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

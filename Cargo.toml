@@ -1,0 +1,49 @@
+[package]
+name = "platform-inspector"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+default-run = "platform-inspector"
+
+[lib]
+name = "platform_inspector"
+path = "src/lib.rs"
+
+[[bin]]
+name = "platform-inspector"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "trace", "compression-gzip"] }
+tower-sessions = "0.13"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "sqlite", "uuid", "chrono", "json", "migrate"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+argon2 = "0.5"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+regex = "1"
+git2 = "0.19"
+minijinja = { version = "2", features = ["loader"] }
+aes-gcm = "0.10"
+base64 = "0.22"
+tokio-cron-scheduler = "0.13"
+time = "0.3"
+
+[dev-dependencies]
+mockall = "0.13"
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["postgres"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+serde_urlencoded = "0.7"

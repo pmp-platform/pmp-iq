@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Platform Inspector{% endblock %}
+{% block content %}
+<div class="w-full max-w-sm bg-white p-6 rounded-lg shadow border border-slate-200">
+  <h1 class="text-xl font-bold mb-4">Sign in</h1>
+  {% if error %}
+  <div class="mb-3 text-sm text-red-600" data-test="login-error">{{ error }}</div>
+  {% endif %}
+  <form method="post" action="/login" class="space-y-3">
+    <input type="hidden" name="csrf" value="{{ csrf }}" />
+    <div>
+      <label class="block text-sm mb-1" for="username">Username</label>
+      <input id="username" name="username" class="w-full border rounded px-3 py-2" autofocus />
+    </div>
+    <div>
+      <label class="block text-sm mb-1" for="password">Password</label>
+      <input id="password" name="password" type="password" class="w-full border rounded px-3 py-2" />
+    </div>
+    <button class="w-full bg-slate-900 text-white rounded py-2 hover:bg-slate-800">Sign in</button>
+  </form>
+</div>
+{% endblock %}

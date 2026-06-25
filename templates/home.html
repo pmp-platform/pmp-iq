@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Platform Inspector{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-2">Dashboard</h1>
+<p class="text-slate-600 mb-6">Inspect your platform: configure source accounts and AI profiles, run review jobs, and explore the discovered model.</p>
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+  <a href="/settings" class="block p-5 bg-white rounded-lg shadow hover:shadow-md border border-slate-200">
+    <div class="text-lg font-semibold">Settings</div>
+    <div class="text-sm text-slate-500">Repository accounts &amp; AI agent profiles.</div>
+  </a>
+  <a href="/jobs" class="block p-5 bg-white rounded-lg shadow hover:shadow-md border border-slate-200">
+    <div class="text-lg font-semibold">Jobs</div>
+    <div class="text-sm text-slate-500">Run and schedule repository reviews.</div>
+  </a>
+  <a href="/platform" class="block p-5 bg-white rounded-lg shadow hover:shadow-md border border-slate-200">
+    <div class="text-lg font-semibold">Platform</div>
+    <div class="text-sm text-slate-500">Applications, dependencies &amp; graph.</div>
+  </a>
+</div>
+{% endblock %}

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Settings · Platform Inspector{% endblock %}
+{% block content %}
+<h1 class="text-xl font-bold mb-4">Settings</h1>
+
+<div data-tabs>
+  <div class="flex gap-1 border-b border-slate-200 mb-4">
+    <button data-tab="accounts" class="px-3 py-2 border-b-2 border-transparent">Repository accounts</button>
+    <button data-tab="ai" class="px-3 py-2 border-b-2 border-transparent">AI profiles</button>
+  </div>
+
+  <div data-panel="accounts">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-slate-500">{{ accounts }} configured</span>
+      <button id="add-account-btn" data-modal-open="account-modal" class="bg-slate-900 text-white rounded px-3 py-1.5">Add account</button>
+    </div>
+    <table class="w-full bg-white rounded-lg shadow border border-slate-200" id="accounts-table">
+      <thead class="text-left text-slate-500 border-b">
+        <tr><th class="p-2.5">Name</th><th>Provider</th><th>Selection</th><th>Enabled</th><th></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p class="text-xs text-slate-400 mt-1">Use “Test” to validate credentials and “Repos” to preview the selection.</p>
+  </div>
+
+  <div data-panel="ai">
+    <div class="flex items-center justify-end mb-2">
+      <button data-modal-open="profile-modal" class="bg-slate-900 text-white rounded px-3 py-1.5">Add AI profile</button>
+    </div>
+    <table class="w-full bg-white rounded-lg shadow border border-slate-200" id="profiles-table">
+      <thead class="text-left text-slate-500 border-b">
+        <tr><th class="p-2.5">Name</th><th>Provider</th><th>Enabled</th><th></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Repository account modal -->
+<div id="account-modal" class="modal hidden fixed inset-0 bg-black/40 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h3 id="account-modal-title" class="font-semibold">Add repository account</h3>
+      <button data-modal-close class="text-slate-400 hover:text-slate-600">✕</button>
+    </div>
+    <form id="account-form" class="space-y-3">
+      <input name="name" placeholder="Name" class="w-full border rounded px-3 py-2" required />
+      <select name="provider_type" class="w-full border rounded px-3 py-2">
+        <option value="github">GitHub</option>
+        <option value="gitlab">GitLab</option>
+        <option value="local">Local</option>
+      </select>
+      <select name="auth_type" class="w-full border rounded px-3 py-2">
+        <option value="token">Token</option>
+        <option value="app">App</option>
+        <option value="none">None</option>
+      </select>
+      <input name="base_url" placeholder="Base URL / local path (optional)" class="w-full border rounded px-3 py-2" />
+      <input name="token" placeholder="Token (stored encrypted)" type="password" class="w-full border rounded px-3 py-2" />
+      <select name="selection_mode" id="selection-mode" class="w-full border rounded px-3 py-2">
+        <option value="all">All repositories</option>
+        <option value="regex">Match by regex</option>
+        <option value="list">Specific repositories</option>
+      </select>
+      <div id="regex-field" class="hidden">
+        <input id="regex-value" placeholder="Regex pattern (matches name or owner/name)" class="w-full border rounded px-3 py-2" />
+      </div>
+      <div id="list-field" class="hidden space-y-2">
+        <div id="repo-list" class="space-y-2"></div>
+        <button type="button" id="add-repo" class="text-sm border rounded px-3 py-1.5">+ Add repository</button>
+      </div>
+      <div class="flex items-center justify-between pt-1">
+        <span id="account-msg" class="text-xs"></span>
+        <div class="flex gap-2">
+          <button type="button" data-modal-close class="border rounded px-3 py-1.5">Cancel</button>
+          <button class="bg-slate-900 text-white rounded px-3 py-1.5">Save</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- AI profile modal -->
+<div id="profile-modal" class="modal hidden fixed inset-0 bg-black/40 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-semibold">Add AI profile</h3>
+      <button data-modal-close class="text-slate-400 hover:text-slate-600">✕</button>
+    </div>
+    <form id="profile-form" class="space-y-3">
+      <input name="name" placeholder="Name" class="w-full border rounded px-3 py-2" required />
+      <select name="provider_type" class="w-full border rounded px-3 py-2">
+        <option value="anthropic">Anthropic API</option>
+        <option value="claude_cli">Claude CLI</option>
+      </select>
+      <input name="api_key" placeholder="API key (Anthropic; stored encrypted)" type="password" class="w-full border rounded px-3 py-2" />
+      <textarea name="config" placeholder='Config JSON, e.g. {"model":"claude-opus-4-8","effort":"high"}' class="w-full border rounded px-3 py-2 font-mono text-xs" rows="3"></textarea>
+      <div class="flex items-center justify-between pt-1">
+        <span id="profile-msg" class="text-xs"></span>
+        <div class="flex gap-2">
+          <button type="button" data-modal-close class="border rounded px-3 py-1.5">Cancel</button>
+          <button class="bg-slate-900 text-white rounded px-3 py-1.5">Save</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script id="accounts-data" type="application/json">{{ accounts_json }}</script>
+<script src="/assets/settings.js?v={{ asset_version }}" defer></script>
+<script src="/assets/ai-profiles.js?v={{ asset_version }}" defer></script>
+{% endblock %}

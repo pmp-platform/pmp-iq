@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Execution · Platform Inspector{% endblock %}
+{% block content %}
+<a href="/jobs" class="text-sm text-blue-600">&larr; Back to jobs</a>
+<h1 class="text-2xl font-bold my-3">Execution</h1>
+
+<div class="bg-white rounded-lg shadow border border-slate-200 p-4 mb-4" id="execution-summary">
+  <div class="text-sm text-slate-500">Loading…</div>
+</div>
+
+<h2 class="text-lg font-semibold mb-2">Logs</h2>
+<pre class="bg-slate-900 text-slate-100 rounded-lg p-4 text-xs overflow-auto" id="execution-logs"></pre>
+
+<script id="execution-id" type="application/json">"{{ execution_id }}"</script>
+<script src="/assets/job-detail.js?v={{ asset_version }}" defer></script>
+{% endblock %}

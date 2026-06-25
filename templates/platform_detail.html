@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Detail · Platform Inspector{% endblock %}
+{% block content %}
+<a href="/platform/{{ entity }}" class="text-sm text-blue-600">&larr; {{ entity }}</a>
+<h1 class="text-2xl font-bold my-3" id="detail-title">Loading…</h1>
+<div id="detail-body" class="space-y-4"></div>
+
+<script id="detail-meta" type="application/json">{"entity": "{{ entity }}", "id": "{{ entity_id }}"}</script>
+<script src="/assets/platform-detail.js?v={{ asset_version }}" defer></script>
+{% endblock %}

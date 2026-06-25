@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ entity }} · Platform Inspector{% endblock %}
+{% block content %}
+<a href="/platform" class="text-sm text-blue-600">&larr; Platform</a>
+<h1 class="text-2xl font-bold my-3 capitalize">{{ entity }}</h1>
+
+<div class="flex items-center gap-2 mb-3">
+  <input id="search" placeholder="Search…" class="border rounded px-3 py-2 text-sm w-64" />
+  <span id="total" class="text-sm text-slate-500"></span>
+</div>
+
+<table class="w-full text-sm bg-white rounded-lg shadow border border-slate-200" id="list-table">
+  <thead class="text-left text-slate-500 border-b"><tr></tr></thead>
+  <tbody></tbody>
+</table>
+
+<div class="flex gap-2 mt-3 text-sm">
+  <button id="prev" class="px-3 py-1 border rounded">Prev</button>
+  <span id="page-info"></span>
+  <button id="next" class="px-3 py-1 border rounded">Next</button>
+</div>
+
+<script id="entity-name" type="application/json">"{{ entity }}"</script>
+<script src="/assets/platform-list.js?v={{ asset_version }}" defer></script>
+{% endblock %}
