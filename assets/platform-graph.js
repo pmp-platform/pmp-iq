@@ -119,11 +119,10 @@
       $legend.append('<span><span class="inline-block w-3 h-3 rounded-full" style="background:' +
         k[2] + '"></span> ' + k[1] + "</span>");
       if (k[0] === "application") return;
-      // "external" (and the synthetic unresolved-dependency nodes it colours) is
-      // the noisiest kind — start it hidden to cut initial density.
-      var checked = k[0] === "external" ? "" : " checked";
+      // Start with applications only; every other kind is opt-in via its toggle,
+      // keeping the initial view focused on the application landscape.
       $toggles.append('<label class="flex items-center gap-1"><input type="checkbox" data-kind="' +
-        k[0] + '"' + checked + " /> " + k[1] + "</label>");
+        k[0] + '" /> ' + k[1] + "</label>");
     });
     $toggles.on("change", "input", redraw);
   }

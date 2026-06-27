@@ -169,12 +169,17 @@ harness in `tests/common/`.
      sensible defaults.
 4. **Jobs:** create a `review-repositories` job (set `ai_profile_id` in its
    config to enable analysis), run it, and watch the execution logs.
-5. **Platform:** a tabbed section (defaulting to the **Graph**) — browse
-   applications, libraries, infrastructure, tools, cloud providers, services,
-   platforms, external dependencies, users and groups as filterable tables.
-   The application detail page shows properties + language breakdown and each
-   relation as a local searchable/filterable/paginated table that links onward;
-   the graph colours and toggles every entity kind.
+5. **Platform:** a tabbed section (defaulting to the **Graph**, which shows
+   applications only by default — toggle other entity kinds on via the legend) —
+   browse applications, libraries, infrastructure, tools, cloud providers,
+   services, platforms, external dependencies, users and groups as filterable
+   tables. The application detail page is itself tabbed: an **Overview** pairing a
+   focused connection graph (the app, its dependencies and infrastructure) with
+   its properties (friendly names) and languages; a **Use cases** tab with
+   interactive flowcharts (use cases → their components) plus the generated
+   mermaid diagrams; per-relation tables (services, cloud providers, platforms,
+   libraries, tools, external, components, observability signals — each shown
+   only when present); and an always-present **Members** tab.
 
 ## Project layout
 

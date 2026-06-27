@@ -100,7 +100,7 @@ mod tests {
                            active_tab => "applications", entity => "applications", entity_id => "x" },
             )
             .unwrap();
-        assert!(detail.contains("app-relations"));
+        assert!(detail.contains("app-detail"));
         assert!(detail.contains("platform-app-detail.js"));
     }
 }

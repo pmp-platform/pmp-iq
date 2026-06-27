@@ -3,18 +3,16 @@
 {% block content %}
 {% include "_platform_tabs.html" %}
 <a href="/platform/applications" class="text-sm text-blue-600">&larr; applications</a>
-<h1 class="text-2xl font-bold my-3" id="detail-title">Loading…</h1>
-
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-  <div id="app-props" class="bg-white rounded-lg shadow border border-slate-200 p-4"></div>
-  <div id="app-languages" class="bg-white rounded-lg shadow border border-slate-200 p-4"></div>
+<div class="my-3">
+  <h1 class="text-2xl font-bold" id="detail-title">Loading…</h1>
+  <div id="detail-subtitle" class="mt-1 text-sm text-slate-600"></div>
 </div>
 
-<div id="app-relations" class="space-y-4"></div>
-<div id="app-use-cases" class="mt-4"></div>
+<div id="app-detail"></div>
 
 <script id="detail-meta" type="application/json">{"entity": "{{ entity }}", "id": "{{ entity_id }}"}</script>
 <script src="/assets/local-table.js?v={{ asset_version }}" defer></script>
 <script src="/assets/vendor/mermaid.min.js?v={{ asset_version }}" defer></script>
+<script src="/assets/vendor/g6.min.js?v={{ asset_version }}" defer></script>
 <script src="/assets/platform-app-detail.js?v={{ asset_version }}" defer></script>
 {% endblock %}

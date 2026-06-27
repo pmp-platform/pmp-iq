@@ -95,6 +95,11 @@ as tables and a connection graph.
   the connection graph, focus + truncation). Routes in `routes/platform.rs`
   (`/platform` redirects to the Graph tab); shared `_platform_tabs.html`,
   generic + application-specific detail templates, and an AntV G6 graph page.
+  The platform graph shows applications only by default (other kinds opt-in via
+  the legend); the application detail is client-side **tabbed** (`assets/
+  platform-app-detail.js`): Overview (focused app→deps→infra G6 graph +
+  properties/languages), Use cases (G6 flowcharts use cases→components + mermaid),
+  conditional per-relation tables, and an always-present Members tab.
 - `src/jobs/` — jobs subsystem: `model`, `repository` (jobs + executions),
   `job_type` (`JobType` trait + `JobTypeRegistry`; `JobContext` exposes
   `state`/`save_state`/`pause_requested`), `runner` (`JobRunner` — status
