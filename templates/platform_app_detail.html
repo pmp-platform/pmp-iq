@@ -2,13 +2,30 @@
 {% block title %}Application · Platform Inspector{% endblock %}
 {% block content %}
 {% include "_platform_tabs.html" %}
-<a href="/platform/applications" class="text-sm text-blue-600">&larr; applications</a>
-<div class="my-3">
-  <h1 class="text-2xl font-bold" id="detail-title">Loading…</h1>
-  <div id="detail-subtitle" class="mt-1 text-sm text-slate-600"></div>
-</div>
+<nav class="flex items-center gap-2 text-sm mt-3 mb-1" aria-label="Breadcrumb">
+  <a href="/platform" class="text-slate-500 hover:text-slate-800">Platform</a>
+  <span class="text-slate-300">/</span>
+  <a href="/platform/applications" class="text-slate-500 hover:text-slate-800">Applications</a>
+  <span class="text-slate-300">/</span>
+  <span class="font-medium text-slate-800 truncate max-w-[20rem]" id="crumb-current" aria-current="page">…</span>
+</nav>
+<h1 class="text-2xl font-bold mb-3" id="detail-title">Loading…</h1>
 
 <div id="app-detail"></div>
+
+<div id="uc-modal" class="modal hidden fixed inset-0 bg-black/40 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-lg shadow-lg w-full max-w-5xl max-h-[90vh] flex flex-col">
+    <div class="flex items-start justify-between gap-4 p-5 pb-3 border-b border-slate-200">
+      <div class="min-w-0">
+        <h3 id="uc-modal-title" class="text-lg font-semibold truncate"></h3>
+        <p id="uc-modal-desc" class="text-sm text-slate-600 mt-1"></p>
+      </div>
+      <button type="button" data-modal-close class="shrink-0 text-2xl leading-none text-slate-400 hover:text-slate-700">&times;</button>
+    </div>
+    <div id="uc-modal-tabs" class="flex gap-1 px-5 pt-3 border-b border-slate-200"></div>
+    <div id="uc-modal-body" class="p-5 overflow-auto flex-1"></div>
+  </div>
+</div>
 
 <script id="detail-meta" type="application/json">{"entity": "{{ entity }}", "id": "{{ entity_id }}"}</script>
 <script src="/assets/local-table.js?v={{ asset_version }}" defer></script>

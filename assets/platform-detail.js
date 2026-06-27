@@ -49,6 +49,7 @@
 
   function render(d) {
     $("#detail-title").text(title(d));
+    $("#crumb-current").text(title(d));
     var html = "";
     var base = '<div class="bg-white rounded-lg shadow border border-slate-200 p-4 space-y-1">';
     ["app_type", "primary_language", "description", "ecosystem", "kind", "version", "email"].forEach(function (k) {

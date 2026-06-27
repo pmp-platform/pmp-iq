@@ -2,8 +2,14 @@
 {% block title %}Detail · Platform Inspector{% endblock %}
 {% block content %}
 {% include "_platform_tabs.html" %}
-<a href="/platform/{{ entity }}" class="text-sm text-blue-600">&larr; {{ entity }}</a>
-<h1 class="text-2xl font-bold my-3" id="detail-title">Loading…</h1>
+<nav class="flex items-center gap-2 text-sm mt-3 mb-1" aria-label="Breadcrumb">
+  <a href="/platform" class="text-slate-500 hover:text-slate-800">Platform</a>
+  <span class="text-slate-300">/</span>
+  <a href="/platform/{{ entity }}" class="text-slate-500 hover:text-slate-800 capitalize">{{ entity }}</a>
+  <span class="text-slate-300">/</span>
+  <span class="font-medium text-slate-800 truncate max-w-[20rem]" id="crumb-current" aria-current="page">…</span>
+</nav>
+<h1 class="text-2xl font-bold mb-3" id="detail-title">Loading…</h1>
 <div id="detail-body" class="space-y-4"></div>
 
 <script id="detail-meta" type="application/json">{"entity": "{{ entity }}", "id": "{{ entity_id }}"}</script>
