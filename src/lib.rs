@@ -5,6 +5,7 @@
 
 pub mod accounts;
 pub mod ai;
+pub mod analysis_config;
 pub mod app;
 pub mod appsettings;
 pub mod auth;

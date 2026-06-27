@@ -1,10 +1,11 @@
 //! GitHub repository provider.
 
-use super::{ProviderError, RepositoryProvider, retry_at_from_headers};
+use super::{ProviderError, RepoMember, RepositoryProvider, retry_at_from_headers};
 use crate::accounts::model::RemoteRepo;
 use crate::httpclient::{HttpClient, HttpRequest, HttpResponse};
 use async_trait::async_trait;
 use serde::Deserialize;
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 const DEFAULT_API: &str = "https://api.github.com";
@@ -17,6 +18,15 @@ struct GhRepo {
     clone_url: String,
     default_branch: Option<String>,
     private: bool,
+}
+
+#[derive(Deserialize)]
+struct GhCollaborator {
+    login: String,
+    #[serde(default)]
+    role_name: Option<String>,
+    #[serde(default)]
+    permissions: Option<Value>,
 }
 
 /// Lists repositories visible to a GitHub token.
@@ -97,6 +107,34 @@ impl RepositoryProvider for GitHubProvider {
         }
         Ok(out)
     }
+
+    async fn list_members(&self, repo_full_name: &str) -> Result<Vec<RepoMember>, ProviderError> {
+        let mut out = Vec::new();
+        for page in 1..=MAX_PAGES {
+            let url = format!(
+                "{}/repos/{repo_full_name}/collaborators?affiliation=all&per_page=100&page={page}",
+                self.base_url
+            );
+            let resp = self
+                .http
+                .send(self.request(&url))
+                .await
+                .map_err(|e| ProviderError::Request(e.to_string()))?;
+            Self::check_status(&resp)?;
+            let collaborators: Vec<GhCollaborator> = serde_json::from_str(&resp.body)
+                .map_err(|e| ProviderError::Parse(e.to_string()))?;
+            if collaborators.is_empty() {
+                break;
+            }
+            out.extend(collaborators.into_iter().map(|c| RepoMember {
+                username: c.login,
+                email: None,
+                role: c.role_name,
+                permissions: c.permissions.unwrap_or_else(|| json!({})),
+            }));
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
@@ -122,6 +160,44 @@ mod tests {
         assert_eq!(repos.len(), 1);
         assert_eq!(repos[0].full_name, "org/api");
         assert!(repos[0].private);
+    }
+
+    #[tokio::test]
+    async fn lists_and_maps_members() {
+        let mut http = MockHttpClient::new();
+        let page1 = r#"[{"login":"alice","role_name":"admin","permissions":{"admin":true,"push":true,"pull":true}},
+            {"login":"bob","role_name":"write","permissions":{"admin":false,"push":true,"pull":true}}]"#;
+        let mut call = 0;
+        http.expect_send()
+            .withf(|req| req.url.contains("/repos/org/api/collaborators"))
+            .returning(move |_| {
+                call += 1;
+                Ok(if call == 1 { ok(page1) } else { ok("[]") })
+            });
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let members = provider.list_members("org/api").await.unwrap();
+        assert_eq!(members.len(), 2);
+        assert_eq!(members[0].username, "alice");
+        assert_eq!(members[0].role.as_deref(), Some("admin"));
+        assert_eq!(members[0].permissions["admin"], serde_json::json!(true));
+        assert_eq!(members[1].username, "bob");
+        assert_eq!(members[1].role.as_deref(), Some("write"));
+    }
+
+    #[tokio::test]
+    async fn members_default_empty_permissions_when_absent() {
+        let mut http = MockHttpClient::new();
+        let mut call = 0;
+        http.expect_send().returning(move |_| {
+            call += 1;
+            Ok(if call == 1 { ok(r#"[{"login":"carol"}]"#) } else { ok("[]") })
+        });
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let members = provider.list_members("org/api").await.unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].username, "carol");
+        assert!(members[0].role.is_none());
+        assert_eq!(members[0].permissions, serde_json::json!({}));
     }
 
     #[tokio::test]

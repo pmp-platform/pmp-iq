@@ -195,7 +195,9 @@ impl Config {
             database: load_database(env)?,
             server: load_server(env)?,
             auth: load_auth(env),
-            workspace_dir: env.get("WORKSPACE_DIR").unwrap_or_else(|| "workspace".into()),
+            workspace_dir: env
+                .get("WORKSPACE_DIR")
+                .unwrap_or_else(|| "tmp/workspace".into()),
             git_min_interval_ms: parse_u64(env, "GIT_API_MIN_INTERVAL_MS", 250)?,
             app_version: env
                 .get("APP_VERSION")
@@ -222,7 +224,7 @@ mod tests {
         assert_eq!(cfg.server.port, 8080);
         assert_eq!(cfg.server.assets_dir, "assets");
         assert!(cfg.auth.admin_user.is_none());
-        assert_eq!(cfg.workspace_dir, "workspace");
+        assert_eq!(cfg.workspace_dir, "tmp/workspace");
     }
 
     #[test]

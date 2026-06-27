@@ -16,14 +16,15 @@
         Platform&nbsp;Inspector
       </a>
       <nav class="flex-1 p-2 space-y-1">
-        <a href="/settings" data-nav="settings" class="block px-3 py-2 rounded hover:bg-slate-800">Settings</a>
-        <a href="/jobs" data-nav="jobs" class="block px-3 py-2 rounded hover:bg-slate-800">Jobs</a>
         <a href="/platform" data-nav="platform" class="block px-3 py-2 rounded hover:bg-slate-800">Platform</a>
+        <div class="my-2 border-t border-slate-800"></div>
+        <a href="/jobs" data-nav="jobs" class="block px-3 py-2 rounded hover:bg-slate-800">Jobs</a>
+        <a href="/settings" data-nav="settings" class="block px-3 py-2 rounded hover:bg-slate-800">Settings</a>
       </nav>
       <div class="p-3 border-t border-slate-800 flex items-center justify-between gap-2">
         <span class="text-slate-400 truncate">{{ current_user }}</span>
-        <form method="post" action="/logout">
-          <button class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Logout</button>
+        <form method="post" action="/logout" id="logout-form">
+          <button type="button" id="logout-btn" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Logout</button>
         </form>
       </div>
     </aside>

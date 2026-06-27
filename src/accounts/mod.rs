@@ -10,7 +10,9 @@ pub mod service;
 pub use model::{
     AccountInput, AuthType, ProviderType, RemoteRepo, RepositoryAccount, SelectionMode,
 };
-pub use providers::{ProviderDeps, ProviderError, RepositoryProvider, RepositoryProviderFactory};
+pub use providers::{
+    ProviderDeps, ProviderError, RepoMember, RepositoryProvider, RepositoryProviderFactory,
+};
 pub use repository::{
     PgRepositoryAccountRepository, RepositoryAccountRepository, SqliteRepositoryAccountRepository,
 };

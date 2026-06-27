@@ -136,14 +136,90 @@
   // A small status pill for table cells.
   var BADGE_VARIANT = {
     default: "bg-slate-100 text-slate-700",
+    neutral: "bg-slate-100 text-slate-600",
     success: "bg-green-100 text-green-700",
     danger: "bg-red-100 text-red-700",
     warn: "bg-amber-100 text-amber-700",
+    info: "bg-blue-100 text-blue-700",
+    purple: "bg-purple-100 text-purple-700",
+    teal: "bg-teal-100 text-teal-700",
+    indigo: "bg-indigo-100 text-indigo-700",
+    cyan: "bg-cyan-100 text-cyan-700",
+    pink: "bg-pink-100 text-pink-700",
   };
   function badge(label, variant) {
     var cls = "inline-block px-2 py-0.5 rounded text-xs font-medium " +
       (BADGE_VARIANT[variant] || BADGE_VARIANT.default);
     return '<span class="' + cls + '">' + label + "</span>";
+  }
+
+  function escText(v) {
+    return $("<div>").text(v === null || v === undefined ? "" : v).html();
+  }
+
+  // Well-known enum values get a semantic colour; any other categorical value
+  // gets a stable, non-semantic colour derived from the value itself.
+  var BADGE_SEMANTIC = {
+    queued: "neutral", running: "info", paused: "warn", succeeded: "success",
+    completed: "success", failed: "danger", cancelled: "warn", error: "danger",
+    member: "success", ex_member: "danger", codeowner: "info",
+    manual: "neutral", cron: "info", scheduled: "info", resume: "warn",
+    yes: "success", no: "neutral",
+  };
+  var BADGE_PALETTE = ["info", "purple", "teal", "indigo", "cyan", "pink"];
+  function paletteVariant(s) {
+    var h = 0;
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return BADGE_PALETTE[h % BADGE_PALETTE.length];
+  }
+
+  // Render a categorical value as a coloured badge (escaped).
+  function badgeFor(value) {
+    var key = String(value).toLowerCase();
+    return badge(escText(value), BADGE_SEMANTIC[key] || paletteVariant(key));
+  }
+
+  // Column keys whose values are categorical and should render as badges.
+  var BADGE_KEYS = {
+    status: 1, trigger: 1, trigger_type: 1, association_type: 1,
+    principal_type: 1, kind: 1, ecosystem: 1, app_type: 1, scope: 1,
+  };
+  function isBadgeKey(key) {
+    return Object.prototype.hasOwnProperty.call(BADGE_KEYS, key);
+  }
+
+  // Shared, right-aligned pagination controls reused by every paginated table.
+  // `ids` supplies the button/label attribute fragments, e.g.
+  // { prev: 'id="prev"', page: 'id="page-info"', next: 'id="next"' } or the
+  // data-attribute variants used by the in-memory tables.
+  var PAGER_WRAP = "flex items-center justify-end gap-1 mt-3 text-sm";
+  var PAGER_BTN = "px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 " +
+    "hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white";
+  var PAGER_INFO = "px-3 text-slate-500 tabular-nums";
+  function paginationControls(ids) {
+    return '<div class="' + PAGER_WRAP + '">' +
+      "<button " + ids.prev + ' class="' + PAGER_BTN + '">Prev</button>' +
+      "<span " + ids.page + ' class="' + PAGER_INFO + '"></span>' +
+      "<button " + ids.next + ' class="' + PAGER_BTN + '">Next</button>' +
+      "</div>";
+  }
+
+  // "language_version" / "primary-language" -> "Language Version".
+  function humanize(key) {
+    return String(key).replace(/[_-]+/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+
+  // Pluralise the last word of a label: "App Type" -> "App Types",
+  // "Category" -> "Categories", "Status" -> "Statuses".
+  function pluralize(label) {
+    var parts = String(label).split(" ");
+    var last = parts[parts.length - 1];
+    if (!last) return label;
+    if (/(s|x|z|ch|sh)$/i.test(last)) last += "es";
+    else if (/[^aeiou]y$/i.test(last)) last = last.slice(0, -1) + "ies";
+    else last += "s";
+    parts[parts.length - 1] = last;
+    return parts.join(" ");
   }
 
   // Exposed for page scripts (e.g. close a modal after a successful save).
@@ -154,6 +230,11 @@
     actionButton: actionButton,
     linkButton: linkButton,
     badge: badge,
+    badgeFor: badgeFor,
+    isBadgeKey: isBadgeKey,
+    paginationControls: paginationControls,
+    humanize: humanize,
+    pluralize: pluralize,
     showLoading: showLoading,
     hideLoading: hideLoading,
     confirm: confirmAction,
@@ -163,9 +244,19 @@
   // `global: false`, e.g. background polling, are skipped).
   $(document).ajaxStart(showLoading).ajaxStop(hideLoading);
 
+  // Confirm before logging out, then submit the real logout form.
+  function initLogout() {
+    $(document).on("click", "#logout-btn", function () {
+      confirmAction("Log out of Platform Inspector?", function () {
+        $("#logout-form").get(0).submit();
+      });
+    });
+  }
+
   $(function () {
     highlightNav();
     initTabs();
     initModals();
+    initLogout();
   });
 })(jQuery);

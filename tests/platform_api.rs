@@ -61,7 +61,11 @@ async fn seed_app(db: &TestDb, app_name: &str) -> Uuid {
         r#"{{"application":{{"name":"{app_name}","app_type":"api"}},
             "libraries":[{{"name":"axum","ecosystem":"cargo","version":"0.7"}}],
             "infrastructure":[{{"name":"PostgreSQL","kind":"database","version":"16"}}],
-            "access":[{{"principal_type":"group","principal_name":"devs","access_level":"write"}}]}}"#
+            "tools":[{{"name":"docker compose","kind":"orchestration","version":"2"}}],
+            "cloud_providers":[{{"name":"AWS","kind":"cloud"}}],
+            "access":[{{"principal_type":"group","principal_name":"devs","access_level":"write"}}],
+            "components":[{{"name":"PayController","kind":"controller","observability_signals":[{{"name":"pays","kind":"metric"}}]}}],
+            "use_cases":[{{"name":"Charge","description":"charge card","components":["PayController"],"diagrams":[{{"name":"Seq","kind":"sequence","content":"sequenceDiagram; A->>B: hi"}}]}}]}}"#
     );
     let result = AnalysisResult::parse(&json).unwrap();
     store::platform_writer(&db.database())
@@ -109,6 +113,28 @@ async fn lists_filters_and_details() {
     assert_eq!(body["items"].as_array().unwrap().len(), 1);
     assert_eq!(body["page"], 2);
 
+    // Filter by an allowlisted field (both apps are app_type 'api').
+    let resp = app
+        .clone()
+        .oneshot(get("/api/platform/applications?app_type=api", &cookies))
+        .await
+        .unwrap();
+    assert_eq!(body_json(resp).await["total"], 2);
+    let resp = app
+        .clone()
+        .oneshot(get("/api/platform/applications?app_type=nope", &cookies))
+        .await
+        .unwrap();
+    assert_eq!(body_json(resp).await["total"], 0);
+
+    // Facets expose distinct values for the entity's filterable fields.
+    let resp = app
+        .clone()
+        .oneshot(get("/api/platform/applications/facets", &cookies))
+        .await
+        .unwrap();
+    assert_eq!(body_json(resp).await["app_type"], serde_json::json!(["api"]));
+
     // Application detail includes relations.
     let resp = app
         .clone()
@@ -119,7 +145,18 @@ async fn lists_filters_and_details() {
     let detail = body_json(resp).await;
     assert_eq!(detail["detail"]["name"], "billing");
     assert_eq!(detail["detail"]["libraries"][0]["name"], "axum");
+    assert!(detail["detail"]["libraries"][0]["id"].is_string(), "library row carries id");
     assert_eq!(detail["detail"]["infrastructure"][0]["name"], "PostgreSQL");
+    assert_eq!(detail["detail"]["tools"][0]["name"], "docker compose");
+    assert_eq!(detail["detail"]["cloud-providers"][0]["name"], "AWS");
+    // The access row carries the new association_type (AI access = codeowner).
+    assert_eq!(detail["detail"]["access"][0]["association_type"], "codeowner");
+    // New application sub-entities are nested in the detail JSON.
+    assert_eq!(detail["detail"]["components"][0]["name"], "PayController");
+    assert_eq!(detail["detail"]["components"][0]["observability_signals"][0]["name"], "pays");
+    assert_eq!(detail["detail"]["use_cases"][0]["name"], "Charge");
+    assert_eq!(detail["detail"]["use_cases"][0]["components"][0]["name"], "PayController");
+    assert_eq!(detail["detail"]["use_cases"][0]["diagrams"][0]["content"], "sequenceDiagram; A->>B: hi");
 
     // Infrastructure and groups lists are populated.
     let resp = app
@@ -128,6 +165,25 @@ async fn lists_filters_and_details() {
         .await
         .unwrap();
     assert_eq!(body_json(resp).await["total"], 1);
+
+    // New linked entities list and expose a detail with their applications.
+    for entity in ["tools", "cloud-providers"] {
+        let resp = app
+            .clone()
+            .oneshot(get(&format!("/api/platform/{entity}"), &cookies))
+            .await
+            .unwrap();
+        let body = body_json(resp).await;
+        assert_eq!(body["total"], 1, "entity {entity}");
+        let id = body["items"][0]["id"].as_str().unwrap().to_string();
+        let resp = app
+            .clone()
+            .oneshot(get(&format!("/api/platform/{entity}/{id}"), &cookies))
+            .await
+            .unwrap();
+        let d = body_json(resp).await;
+        assert_eq!(d["detail"]["applications"].as_array().unwrap().len(), 2, "entity {entity}");
+    }
 
     let resp = app
         .clone()

@@ -2,7 +2,7 @@
 (function ($) {
   "use strict";
 
-  var REVIEW_TYPE = "review-repositories";
+  var REVIEW_TYPE = "sync-repositories";
   var typeDescriptions = {};
 
   // Populate the job-type select and its description from the registry.
@@ -36,17 +36,9 @@
     $("#job-config").toggleClass("hidden", isReview);
   }
 
+  // Categorical pill shared with the rest of the UI (semantic status colours).
   function statusBadge(status) {
-    var colors = {
-      queued: "bg-slate-200 text-slate-700",
-      running: "bg-blue-100 text-blue-700",
-      paused: "bg-amber-100 text-amber-700",
-      succeeded: "bg-green-100 text-green-700",
-      failed: "bg-red-100 text-red-700",
-      cancelled: "bg-amber-100 text-amber-700",
-    };
-    var cls = colors[status] || "bg-slate-200";
-    return '<span class="px-2 py-0.5 rounded text-xs ' + cls + '">' + status + "</span>";
+    return window.PI.badgeFor(status);
   }
 
   function renderJobs(jobs) {
@@ -56,13 +48,14 @@
       return;
     }
     jobs.forEach(function (j) {
-      var trig = j.trigger_type + (j.cron_expr ? " (" + j.cron_expr + ")" : "");
+      var trig = window.PI.badgeFor(j.trigger_type) +
+        (j.cron_expr ? ' <span class="text-xs text-slate-500">' + $("<div>").text(j.cron_expr).html() + "</span>" : "");
       var $row = $(
         '<tr class="border-b">' +
           '<td class="p-3">' + $("<div>").text(j.name).html() + "</td>" +
           "<td>" + j.job_type + "</td>" +
-          "<td>" + $("<div>").text(trig).html() + "</td>" +
-          "<td>" + (j.enabled ? "yes" : "no") + "</td>" +
+          "<td>" + trig + "</td>" +
+          "<td>" + window.PI.badge(j.enabled ? "Yes" : "No", j.enabled ? "success" : "neutral") + "</td>" +
           '<td class="text-right pr-3 whitespace-nowrap">' +
             window.PI.actionButton("Run now", { "data-act": "run" }, "success") +
             window.PI.actionButton("Delete", { "data-act": "del" }, "danger") +
@@ -74,7 +67,37 @@
     });
   }
 
+  // Executions are kept (ordered date DESC by the server) and filtered
+  // client-side by status / trigger without losing the live poll.
+  var allExecs = [];
+  var execFilter = { status: "", trigger: "" };
+
   function renderExecutions(execs) {
+    allExecs = execs;
+    updateTriggerOptions(execs);
+    drawExecutions();
+  }
+
+  // Refresh the trigger dropdown's options from the data, preserving selection.
+  function updateTriggerOptions(execs) {
+    var $sel = $("#exec-trigger");
+    var current = $sel.val();
+    var seen = {};
+    var values = [];
+    execs.forEach(function (e) {
+      if (e.trigger && !seen[e.trigger]) { seen[e.trigger] = true; values.push(e.trigger); }
+    });
+    values.sort();
+    $sel.find("option").slice(1).remove();
+    values.forEach(function (v) { $sel.append($("<option>").val(v).text(v)); });
+    if (values.indexOf(current) >= 0) $sel.val(current);
+  }
+
+  function drawExecutions() {
+    var execs = allExecs.filter(function (e) {
+      return (!execFilter.status || e.status === execFilter.status) &&
+        (!execFilter.trigger || e.trigger === execFilter.trigger);
+    });
     var $body = $("#executions-table tbody").empty();
     if (!execs.length) {
       $body.append('<tr><td class="p-3 text-slate-400" colspan="5">No executions yet.</td></tr>');
@@ -91,7 +114,7 @@
         '<tr class="border-b">' +
           '<td class="p-3">' + statusBadge(e.status) +
             (e.resume_at ? ' <span class="text-xs text-slate-400">resumes ' + e.resume_at + "</span>" : "") + "</td>" +
-          "<td>" + e.trigger + "</td>" +
+          "<td>" + (e.trigger ? window.PI.badgeFor(e.trigger) : "—") + "</td>" +
           "<td>" + (e.started_at || "—") + "</td>" +
           "<td>" + (e.finished_at || "—") + "</td>" +
           '<td class="text-right pr-3 whitespace-nowrap">' + action +
@@ -123,6 +146,9 @@
     setInterval(loadExecutions, 3000);
 
     $("#job-type").on("change", updateJobTypeUI);
+
+    $("#exec-status").on("change", function () { execFilter.status = $(this).val(); drawExecutions(); });
+    $("#exec-trigger").on("change", function () { execFilter.trigger = $(this).val(); drawExecutions(); });
 
     $("#job-form").on("submit", function (e) {
       e.preventDefault();

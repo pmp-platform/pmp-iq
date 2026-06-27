@@ -11,6 +11,7 @@ use tower_sessions::cookie::SameSite;
 use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
 
 pub mod ai_profiles;
+pub mod analysis_config;
 pub mod auth;
 pub mod health;
 pub mod jobs;
@@ -29,6 +30,7 @@ fn protected_routes() -> Router<AppState> {
         .merge(pages::routes())
         .merge(settings::routes())
         .merge(ai_profiles::routes())
+        .merge(analysis_config::routes())
         .merge(jobs::routes())
         .merge(platform::routes())
         .route_layer(from_fn(require_auth))

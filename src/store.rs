@@ -5,6 +5,10 @@ use crate::accounts::repository::{
     PgRepositoryAccountRepository, RepositoryAccountRepository, SqliteRepositoryAccountRepository,
 };
 use crate::ai::repository::{AiProfileRepository, PgAiProfileRepository, SqliteAiProfileRepository};
+use crate::analysis_config::repository::{
+    EntityKindRepository, EntityPropertyRepository, PgEntityKindRepository,
+    PgEntityPropertyRepository, SqliteEntityKindRepository, SqliteEntityPropertyRepository,
+};
 use crate::appsettings::{PgSettingsRepository, SettingsRepository, SqliteSettingsRepository};
 use crate::db::Database;
 use crate::jobs::leader::{LeaderLock, PgLeaderLock, SqliteLeaderLock};
@@ -41,6 +45,18 @@ engine_factory!(
     SqliteRepositoryAccountRepository
 );
 engine_factory!(ai_profiles, AiProfileRepository, PgAiProfileRepository, SqliteAiProfileRepository);
+engine_factory!(
+    entity_kinds,
+    EntityKindRepository,
+    PgEntityKindRepository,
+    SqliteEntityKindRepository
+);
+engine_factory!(
+    entity_properties,
+    EntityPropertyRepository,
+    PgEntityPropertyRepository,
+    SqliteEntityPropertyRepository
+);
 engine_factory!(jobs, JobRepository, PgJobRepository, SqliteJobRepository);
 engine_factory!(
     job_executions,

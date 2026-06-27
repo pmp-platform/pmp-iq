@@ -2,12 +2,13 @@
 //! enabled account, then (when an AI profile is configured) analyse each and
 //! persist the results into the platform model.
 
-use crate::accounts::{AccountService, RemoteRepo, RepositoryAccount};
+use crate::accounts::{AccountService, ProviderType, RemoteRepo, RepositoryAccount};
 use crate::ai::{AiProfileService, AiProvider, AiProviderDeps, AiProviderFactory};
+use crate::analysis_config::AnalysisConfigService;
 use crate::error::AppError;
 use crate::git::{CloneRequest, GitClient};
 use crate::jobs::{JobContext, JobError, JobOutcome, JobType};
-use crate::platform::{AnalysisInput, PlatformWriter, RepositoryAnalyzer};
+use crate::platform::{AnalysisInput, MemberInfo, PlatformWriter, RepositoryAnalyzer};
 use crate::repositories::{RepoRecord, RepoRecordInput, RepoRecordRepository};
 use crate::workspace::Workspace;
 use async_trait::async_trait;
@@ -17,7 +18,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use uuid::Uuid;
 
-pub const JOB_TYPE: &str = "review-repositories";
+pub const JOB_TYPE: &str = "sync-repositories";
 
 /// Dependencies for the review job (bundled to bound parameter count).
 #[derive(Clone)]
@@ -30,6 +31,7 @@ pub struct ReviewDeps {
     pub writer: Arc<dyn PlatformWriter>,
     pub ai: AiProfileService,
     pub ai_deps: AiProviderDeps,
+    pub analysis_config: AnalysisConfigService,
 }
 
 /// Running tally for the job summary (also persisted in the resume checkpoint).
@@ -61,9 +63,17 @@ impl Checkpoint {
 
 /// One repository to clone (bundled to bound parameter count).
 struct CloneTask<'a> {
-    account_id: Uuid,
+    account: &'a RepositoryAccount,
     remote: &'a RemoteRepo,
     token: Option<String>,
+}
+
+/// Inputs for analysing one cloned repository (bundled to bound parameters).
+struct AnalyzeInput<'a> {
+    record: &'a RepoRecord,
+    checkout_path: &'a str,
+    account: &'a RepositoryAccount,
+    provider: &'a dyn AiProvider,
 }
 
 /// Clones and analyses repositories from configured accounts.
@@ -112,7 +122,7 @@ impl ReviewRepositoriesJob {
         for remote in &selected {
             tally.repositories += 1;
             let task = CloneTask {
-                account_id: account.id,
+                account,
                 remote,
                 token: token.clone(),
             };
@@ -130,7 +140,7 @@ impl ReviewRepositoriesJob {
         provider: Option<&dyn AiProvider>,
         tally: &mut Tally,
     ) {
-        let record = match self.upsert(task.account_id, task.remote).await {
+        let record = match self.upsert(task.account.id, task.remote).await {
             Ok(record) => record,
             Err(message) => {
                 tally.failed += 1;
@@ -142,7 +152,13 @@ impl ReviewRepositoriesJob {
             Ok(path) => {
                 tally.cloned += 1;
                 if let Some(provider) = provider {
-                    self.analyze(ctx, &record, &path, provider, tally).await;
+                    let input = AnalyzeInput {
+                        record: &record,
+                        checkout_path: &path,
+                        account: task.account,
+                        provider,
+                    };
+                    self.analyze(ctx, input, tally).await;
                 }
             }
             Err(message) => {
@@ -184,35 +200,73 @@ impl ReviewRepositoriesJob {
         Ok(info.path)
     }
 
-    async fn analyze(
-        &self,
-        ctx: &JobContext,
-        record: &RepoRecord,
-        checkout_path: &str,
-        provider: &dyn AiProvider,
-        tally: &mut Tally,
-    ) {
-        let input = AnalysisInput {
-            checkout_path: checkout_path.to_string(),
+    async fn analyze(&self, ctx: &JobContext, input: AnalyzeInput<'_>, tally: &mut Tally) {
+        let record = input.record;
+        let cfg = self.deps.analysis_config.load().await.unwrap_or_default();
+        let analysis = AnalysisInput {
+            checkout_path: input.checkout_path.to_string(),
             repo_full_name: record.full_name.clone(),
-            provider,
+            provider: input.provider,
+            config: cfg.clone(),
         };
-        match self.deps.analyzer.analyze(input).await {
-            Ok(result) => match self.deps.writer.write(record.id, &result).await {
-                Ok(_) => {
-                    let _ = self.deps.repositories.mark_reviewed(record.id).await;
-                    tally.analyzed += 1;
-                    ctx.log(&format!("analysed {}", record.full_name)).await;
-                }
-                Err(e) => {
-                    tally.analysis_failed += 1;
-                    ctx.log(&format!("ANALYSIS WRITE FAILED {}: {e}", record.full_name)).await;
-                }
-            },
+        let result = match self.deps.analyzer.analyze(analysis).await {
+            Ok(mut result) => {
+                result.apply_config(&cfg);
+                result
+            }
             Err(e) => {
                 tally.analysis_failed += 1;
                 ctx.log(&format!("ANALYSIS FAILED {}: {e}", record.full_name)).await;
+                return;
             }
+        };
+        match self.deps.writer.write(record.id, &result).await {
+            Ok(app_id) => {
+                let _ = self.deps.repositories.mark_reviewed(record.id).await;
+                tally.analyzed += 1;
+                ctx.log(&format!("analysed {}", record.full_name)).await;
+                self.reconcile_members(ctx, input.account, record, app_id).await;
+            }
+            Err(e) => {
+                tally.analysis_failed += 1;
+                ctx.log(&format!("ANALYSIS WRITE FAILED {}: {e}", record.full_name)).await;
+            }
+        }
+    }
+
+    /// Fetch the repository's current members from the provider and reconcile
+    /// them into the platform model (members / ex-members). Scoped to providers
+    /// that expose members (GitHub); failures are isolated and logged.
+    async fn reconcile_members(
+        &self,
+        ctx: &JobContext,
+        account: &RepositoryAccount,
+        record: &RepoRecord,
+        app_id: Uuid,
+    ) {
+        if account.provider_type != ProviderType::Github {
+            return;
+        }
+        let members = match self.deps.accounts.members_for(account, &record.full_name).await {
+            Ok(members) => members,
+            Err(e) => {
+                ctx.log(&format!("MEMBERS FAILED {}: {e}", record.full_name)).await;
+                return;
+            }
+        };
+        let mapped: Vec<MemberInfo> = members
+            .into_iter()
+            .map(|m| MemberInfo {
+                username: m.username,
+                email: m.email,
+                role: m.role,
+                permissions: m.permissions,
+                metadata: json!({}),
+            })
+            .collect();
+        match self.deps.writer.reconcile_members(app_id, &mapped).await {
+            Ok(()) => ctx.log(&format!("{} member(s) for {}", mapped.len(), record.full_name)).await,
+            Err(e) => ctx.log(&format!("MEMBERS WRITE FAILED {}: {e}", record.full_name)).await,
         }
     }
 
@@ -242,9 +296,9 @@ impl JobType for ReviewRepositoriesJob {
     }
 
     fn description(&self) -> &str {
-        "Clone selected repositories from all enabled accounts. When an AI profile is set, \
-         each repository is also analyzed into the platform model; without one, repositories \
-         are only cloned."
+        "Synchronize selected repositories from all enabled accounts: clone each one and, \
+         when an AI profile is set, analyze it into the platform model (removing stale data \
+         it no longer produces). Without an AI profile, repositories are only cloned."
     }
 
     async fn run(&self, ctx: JobContext) -> Result<JobOutcome, JobError> {
@@ -296,6 +350,15 @@ impl JobType for ReviewRepositoriesJob {
                     });
                 }
                 Err(e) => return Err(JobError::Failed(format!("account '{}': {e}", account.name))),
+            }
+        }
+
+        // Re-analysis can orphan shared entities (a library a repo no longer
+        // uses); prune them once the full sweep completes. Best-effort.
+        if provider.is_some() {
+            match self.deps.writer.prune_orphans().await {
+                Ok(()) => ctx.log("pruned orphaned shared entities").await,
+                Err(e) => ctx.log(&format!("orphan prune failed: {e}")).await,
             }
         }
 

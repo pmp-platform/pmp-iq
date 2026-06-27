@@ -120,7 +120,7 @@ async fn full_platform_inspection_flow() {
 
     // 4. Create and run the review job.
     let job = json!({
-        "name": "review", "job_type": "review-repositories", "trigger_type": "manual",
+        "name": "review", "job_type": "sync-repositories", "trigger_type": "manual",
         "config": { "ai_profile_id": profile_id }
     });
     let job_id = body_json(

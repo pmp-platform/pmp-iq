@@ -21,6 +21,8 @@ pub struct CommandSpec {
     pub program: String,
     pub args: Vec<String>,
     pub stdin: Option<String>,
+    /// Extra environment variables for the child process (name, value).
+    pub env: Vec<(String, String)>,
 }
 
 /// Errors from running a command.
@@ -50,6 +52,7 @@ impl CommandRunner for TokioCommandRunner {
 
         let mut command = Command::new(&spec.program);
         command.args(&spec.args);
+        command.envs(spec.env.clone());
         command.stdout(std::process::Stdio::piped());
         command.stderr(std::process::Stdio::piped());
         if spec.stdin.is_some() {

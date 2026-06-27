@@ -3,17 +3,18 @@
 use crate::app::AppState;
 use crate::auth::Principal;
 use crate::error::{AppError, AppResult};
-use crate::platform::{GraphScope, ListQuery, is_entity};
+use crate::platform::{GraphScope, ListQuery, filter_fields, is_entity};
 use crate::web::{PageContext, render_page};
 use axum::Extension;
 use axum::Json;
 use axum::Router;
 use axum::extract::{Path, Query, State};
-use axum::response::Html;
+use axum::response::{Html, Redirect};
 use axum::routing::get;
 use minijinja::context;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 pub fn routes() -> Router<AppState> {
@@ -24,17 +25,23 @@ pub fn routes() -> Router<AppState> {
         .route("/platform/:entity", get(list_page))
         .route("/platform/:entity/:id", get(detail_page))
         .route("/api/platform/:entity", get(list_api))
+        .route("/api/platform/:entity/facets", get(facets_api))
         .route("/api/platform/:entity/:id", get(detail_api))
 }
 
-#[derive(Deserialize)]
-struct ListParams {
-    #[serde(default)]
-    search: Option<String>,
-    #[serde(default)]
-    page: Option<i64>,
-    #[serde(default)]
-    page_size: Option<i64>,
+/// Build a list query from raw query params: `search`/`page`/`page_size` plus
+/// any allowlisted equality filters for the entity.
+fn build_list_query(entity: &str, params: &HashMap<String, String>) -> ListQuery {
+    let search = params.get("search").cloned();
+    let page = params.get("page").and_then(|v| v.parse().ok());
+    let page_size = params.get("page_size").and_then(|v| v.parse().ok());
+    let mut filters = BTreeMap::new();
+    for &field in filter_fields(entity) {
+        if let Some(value) = params.get(field).filter(|v| !v.is_empty()) {
+            filters.insert(field.to_string(), value.clone());
+        }
+    }
+    ListQuery::new(search, page, page_size, filters)
 }
 
 fn validate_entity(entity: &str) -> AppResult<()> {
@@ -45,12 +52,9 @@ fn validate_entity(entity: &str) -> AppResult<()> {
     }
 }
 
-async fn overview_page(
-    State(state): State<AppState>,
-    Extension(user): Extension<Principal>,
-) -> AppResult<Html<String>> {
-    let page = PageContext::new(Some(user.display_name), "platform");
-    render_page(&state.engine, "platform.html", &page, context! {})
+/// Entering the Platform section lands on the Graph tab by default.
+async fn overview_page() -> Redirect {
+    Redirect::to("/platform/graph")
 }
 
 #[derive(Deserialize)]
@@ -66,7 +70,7 @@ async fn graph_page(
     Extension(user): Extension<Principal>,
 ) -> AppResult<Html<String>> {
     let page = PageContext::new(Some(user.display_name), "platform");
-    render_page(&state.engine, "platform_graph.html", &page, context! {})
+    render_page(&state.engine, "platform_graph.html", &page, context! { active_tab => "graph" })
 }
 
 async fn graph_api(
@@ -89,7 +93,7 @@ async fn list_page(
         &state.engine,
         "platform_list.html",
         &page,
-        context! { entity => entity },
+        context! { entity => entity, active_tab => entity },
     )
 }
 
@@ -100,21 +104,26 @@ async fn detail_page(
 ) -> AppResult<Html<String>> {
     validate_entity(&entity)?;
     let page = PageContext::new(Some(user.display_name), "platform");
+    let template = if entity == "applications" {
+        "platform_app_detail.html"
+    } else {
+        "platform_detail.html"
+    };
     render_page(
         &state.engine,
-        "platform_detail.html",
+        template,
         &page,
-        context! { entity => entity, entity_id => id.to_string() },
+        context! { entity => entity, entity_id => id.to_string(), active_tab => entity },
     )
 }
 
 async fn list_api(
     State(state): State<AppState>,
     Path(entity): Path<String>,
-    Query(params): Query<ListParams>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> AppResult<Json<Value>> {
     validate_entity(&entity)?;
-    let query = ListQuery::new(params.search, params.page, params.page_size);
+    let query = build_list_query(&entity, &params);
     let page = state.platform.list(&entity, &query).await?;
     Ok(Json(json!({
         "items": page.items,
@@ -122,6 +131,16 @@ async fn list_api(
         "page": page.page,
         "page_size": page.page_size,
     })))
+}
+
+/// Distinct values for each filterable field of an entity (filter dropdowns).
+async fn facets_api(
+    State(state): State<AppState>,
+    Path(entity): Path<String>,
+) -> AppResult<Json<Value>> {
+    validate_entity(&entity)?;
+    let facets = state.platform.facets(&entity).await?;
+    Ok(Json(facets))
 }
 
 async fn detail_api(

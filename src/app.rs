@@ -2,6 +2,7 @@
 
 use crate::accounts::{AccountService, ProviderDeps};
 use crate::ai::{AiProfileService, AiProviderDeps};
+use crate::analysis_config::AnalysisConfigService;
 use crate::auth::AuthService;
 use crate::config::Config;
 use crate::crypto::AesGcmEncryptor;
@@ -36,6 +37,7 @@ pub struct AppState {
     pub accounts: AccountService,
     pub ai_deps: AiProviderDeps,
     pub ai: AiProfileService,
+    pub analysis_config: AnalysisConfigService,
     pub jobs_repo: Arc<dyn JobRepository>,
     pub executions_repo: Arc<dyn JobExecutionRepository>,
     pub job_types: Arc<JobTypeRegistry>,
@@ -71,6 +73,10 @@ impl AppState {
             encryptor: deps.encryptor.clone(),
         };
         let ai = AiProfileService::new(store::ai_profiles(&db), ai_deps.clone());
+        let analysis_config = AnalysisConfigService::new(
+            store::entity_kinds(&db),
+            store::entity_properties(&db),
+        );
 
         let jobs_repo = store::jobs(&db);
         let executions_repo = store::job_executions(&db);
@@ -85,6 +91,7 @@ impl AppState {
             writer: store::platform_writer(&db),
             ai: ai.clone(),
             ai_deps: ai_deps.clone(),
+            analysis_config: analysis_config.clone(),
         });
 
         let mut registry = JobTypeRegistry::new();
@@ -112,6 +119,7 @@ impl AppState {
             accounts,
             ai_deps,
             ai,
+            analysis_config,
             jobs_repo,
             executions_repo,
             job_types: registry,

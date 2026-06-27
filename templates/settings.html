@@ -7,6 +7,8 @@
   <div class="flex gap-1 border-b border-slate-200 mb-4">
     <button data-tab="accounts" class="px-3 py-2 border-b-2 border-transparent">Repository accounts</button>
     <button data-tab="ai" class="px-3 py-2 border-b-2 border-transparent">AI profiles</button>
+    <button data-tab="kinds" class="px-3 py-2 border-b-2 border-transparent">Entity kinds</button>
+    <button data-tab="properties" class="px-3 py-2 border-b-2 border-transparent">Properties</button>
   </div>
 
   <div data-panel="accounts">
@@ -33,6 +35,16 @@
       </thead>
       <tbody></tbody>
     </table>
+  </div>
+
+  <div data-panel="kinds">
+    <p class="text-slate-500 text-sm mb-3">Allowed kinds per entity type, each with an id, a friendly name, and a description. The analyzer may only use these ids; entities with any other kind are discarded on import.</p>
+    <div id="kinds-root" class="space-y-4"></div>
+  </div>
+
+  <div data-panel="properties">
+    <p class="text-slate-500 text-sm mb-3">Properties the analyzer extracts into each entity’s metadata. Only these keys are kept on import; any other metadata key is discarded.</p>
+    <div id="properties-root" class="space-y-4"></div>
   </div>
 </div>
 
@@ -89,12 +101,30 @@
     </div>
     <form id="profile-form" class="space-y-3">
       <input name="name" placeholder="Name" class="w-full border rounded px-3 py-2" required />
-      <select name="provider_type" class="w-full border rounded px-3 py-2">
+      <select name="provider_type" id="profile-provider" class="w-full border rounded px-3 py-2">
         <option value="anthropic">Anthropic API</option>
         <option value="claude_cli">Claude CLI</option>
       </select>
-      <input name="api_key" placeholder="API key (Anthropic; stored encrypted)" type="password" class="w-full border rounded px-3 py-2" />
-      <textarea name="config" placeholder='Config JSON, e.g. {"model":"claude-opus-4-8","effort":"high"}' class="w-full border rounded px-3 py-2 font-mono text-xs" rows="3"></textarea>
+      <div>
+        <input id="profile-api-key" placeholder="API key (stored encrypted)" type="password" class="w-full border rounded px-3 py-2" />
+        <p id="api-key-help" class="text-xs text-slate-500 mt-1"></p>
+      </div>
+      <select id="profile-model" class="w-full border rounded px-3 py-2"></select>
+      <div id="effort-field">
+        <select id="profile-effort" class="w-full border rounded px-3 py-2"></select>
+      </div>
+      <div id="max-tokens-field">
+        <input id="profile-max-tokens" type="number" min="1" placeholder="Max tokens (default 4096)" class="w-full border rounded px-3 py-2" />
+      </div>
+      <div id="base-url-field">
+        <input id="profile-base-url" placeholder="Base URL (optional)" class="w-full border rounded px-3 py-2" />
+      </div>
+      <div id="binary-path-field" class="hidden">
+        <input id="profile-binary-path" placeholder="Claude binary path (default: claude)" class="w-full border rounded px-3 py-2" />
+      </div>
+      <div id="extra-args-field" class="hidden">
+        <input id="profile-extra-args" placeholder="Extra CLI args (space-separated, optional)" class="w-full border rounded px-3 py-2" />
+      </div>
       <div class="flex items-center justify-between pt-1">
         <span id="profile-msg" class="text-xs"></span>
         <div class="flex gap-2">
@@ -109,4 +139,6 @@
 <script id="accounts-data" type="application/json">{{ accounts_json }}</script>
 <script src="/assets/settings.js?v={{ asset_version }}" defer></script>
 <script src="/assets/ai-profiles.js?v={{ asset_version }}" defer></script>
+<script src="/assets/entity-kinds.js?v={{ asset_version }}" defer></script>
+<script src="/assets/entity-properties.js?v={{ asset_version }}" defer></script>
 {% endblock %}

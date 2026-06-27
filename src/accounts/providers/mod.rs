@@ -14,6 +14,18 @@ use crate::accounts::model::RemoteRepo;
 use crate::httpclient::HttpResponse;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use serde_json::Value;
+
+/// A member/collaborator of a repository, as reported by a provider's API.
+#[derive(Debug, Clone)]
+pub struct RepoMember {
+    pub username: String,
+    pub email: Option<String>,
+    /// Provider role name (e.g. GitHub `admin`/`write`/`read`).
+    pub role: Option<String>,
+    /// Raw provider permission flags (free-form JSON).
+    pub permissions: Value,
+}
 
 /// Errors raised by repository providers.
 #[derive(Debug, thiserror::Error)]
@@ -62,4 +74,10 @@ pub trait RepositoryProvider: Send + Sync {
 
     /// List all repositories visible to the account (before selection).
     async fn list_repositories(&self) -> Result<Vec<RemoteRepo>, ProviderError>;
+
+    /// List the members/collaborators of a repository. Providers without a
+    /// member concept (e.g. local) inherit this empty default.
+    async fn list_members(&self, _repo_full_name: &str) -> Result<Vec<RepoMember>, ProviderError> {
+        Ok(Vec::new())
+    }
 }

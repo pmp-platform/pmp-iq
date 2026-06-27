@@ -2,6 +2,7 @@
 //! is portable and JSON is assembled in Rust, so one body backs both engines.
 
 use crate::db::{RepoResult, identity, to_sqlite};
+use crate::platform::linked::LINKED;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use sqlx::{PgPool, SqlitePool};
@@ -34,6 +35,14 @@ pub trait GraphQuery: Send + Sync {
     async fn build(&self, scope: &GraphScope) -> RepoResult<Value>;
 }
 
+/// Presentation metadata for a node (bundled to keep `add_node` to ≤4 params).
+struct NodeMeta<'a> {
+    kind: &'a str,
+    sub: Option<&'a str>,
+    /// Where clicking the node navigates, if anywhere.
+    href: Option<String>,
+}
+
 /// Internal accumulator while assembling the graph.
 #[derive(Default)]
 struct GraphBuilder {
@@ -44,10 +53,10 @@ struct GraphBuilder {
 }
 
 impl GraphBuilder {
-    fn add_node(&mut self, id: String, label: String, kind: &str, sub: Option<&str>) {
+    fn add_node(&mut self, id: String, label: String, meta: NodeMeta<'_>) {
         if self.node_ids.insert(id.clone()) {
             self.nodes.push(json!({
-                "data": { "id": id, "label": label, "kind": kind, "sub": sub }
+                "data": { "id": id, "label": label, "kind": meta.kind, "sub": meta.sub, "href": meta.href }
             }));
         }
     }
@@ -105,26 +114,43 @@ macro_rules! graph_query_impl {
                 .await?;
                 for (id, name, app_type) in apps {
                     builder.app_names.insert(name.clone(), id);
-                    builder.add_node(id.to_string(), name, "application", app_type.as_deref());
+                    let href = format!("/platform/applications/{id}");
+                    builder.add_node(
+                        id.to_string(),
+                        name,
+                        NodeMeta { kind: "application", sub: app_type.as_deref(), href: Some(href) },
+                    );
                 }
                 Ok(())
             }
 
-            async fn add_infrastructure_edges(&self, builder: &mut GraphBuilder) -> RepoResult<()> {
-                let rows: Vec<(Uuid, String, String, Uuid)> = sqlx::query_as(&$xform(
-                    "SELECT i.id, i.name, i.kind, ai.application_id FROM application_infrastructure ai \
-                     JOIN infrastructure i ON i.id = ai.infrastructure_id",
-                ))
-                .fetch_all(&self.pool)
-                .await?;
-                for (infra_id, name, kind, app_id) in rows {
-                    let app_node = app_id.to_string();
-                    if !builder.node_ids.contains(&app_node) {
-                        continue;
+            /// Add nodes + edges for every linked entity (infrastructure, tools,
+            /// cloud providers, services, platforms, external) from the registry.
+            async fn add_linked_edges(&self, builder: &mut GraphBuilder) -> RepoResult<()> {
+                for entity in LINKED {
+                    let sql = $xform(&format!(
+                        "SELECT i.id, i.name, i.kind, j.application_id FROM {join} j \
+                         JOIN {table} i ON i.id = j.{fk}",
+                        join = entity.join_table,
+                        table = entity.table,
+                        fk = entity.fk_col
+                    ));
+                    let rows: Vec<(Uuid, String, String, Uuid)> =
+                        sqlx::query_as(&sql).fetch_all(&self.pool).await?;
+                    for (entity_id, name, kind, app_id) in rows {
+                        let app_node = app_id.to_string();
+                        if !builder.node_ids.contains(&app_node) {
+                            continue;
+                        }
+                        let node = format!("{}:{}", entity.name, entity_id);
+                        let href = format!("/platform/{}/{}", entity.name, entity_id);
+                        builder.add_node(
+                            node.clone(),
+                            name,
+                            NodeMeta { kind: entity.name, sub: Some(&kind), href: Some(href) },
+                        );
+                        builder.add_edge(app_node, node, &kind);
                     }
-                    let infra_node = format!("infra:{infra_id}");
-                    builder.add_node(infra_node.clone(), name, "infrastructure", Some(&kind));
-                    builder.add_edge(app_node, infra_node, &kind);
                 }
                 Ok(())
             }
@@ -145,7 +171,11 @@ macro_rules! graph_query_impl {
                         Some(id) => id.to_string(),
                         None => {
                             let ext = format!("ext:{target_name}");
-                            builder.add_node(ext.clone(), target_name.clone(), "external", None);
+                            builder.add_node(
+                                ext.clone(),
+                                target_name.clone(),
+                                NodeMeta { kind: "external", sub: None, href: None },
+                            );
                             ext
                         }
                     };
@@ -164,7 +194,7 @@ macro_rules! graph_query_impl {
                         .fetch_one(&self.pool)
                         .await?;
                 self.add_applications(&mut builder, scope.limit).await?;
-                self.add_infrastructure_edges(&mut builder).await?;
+                self.add_linked_edges(&mut builder).await?;
                 self.add_dependency_edges(&mut builder).await?;
 
                 let truncated = total_apps > scope.limit;
@@ -199,9 +229,10 @@ mod tests {
         let other = Uuid::new_v4();
         let far = Uuid::new_v4();
         let mut builder = GraphBuilder::default();
-        builder.add_node(center.to_string(), "c".into(), "application", None);
-        builder.add_node(other.to_string(), "o".into(), "application", None);
-        builder.add_node(far.to_string(), "f".into(), "application", None);
+        let app = |sub| NodeMeta { kind: "application", sub, href: None };
+        builder.add_node(center.to_string(), "c".into(), app(None));
+        builder.add_node(other.to_string(), "o".into(), app(None));
+        builder.add_node(far.to_string(), "f".into(), app(None));
         builder.add_edge(center.to_string(), other.to_string(), "http");
         builder.add_edge(far.to_string(), far.to_string(), "http");
 

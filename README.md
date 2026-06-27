@@ -3,10 +3,18 @@
 Platform Inspector connects to one or more source-control accounts (GitHub,
 GitLab, or local repositories), clones the repositories you select, runs
 AI-driven analysis over them, and builds a queryable **platform model**:
-applications, the languages and libraries they use, the infrastructure they
-depend on, how they connect to one another, and which users/groups can access
-them. The result is browsable as filterable tables and an interactive
-connection graph.
+applications, the languages and libraries they use, the infrastructure and
+**tools** (docker compose, gradle, …) they build/run with, the external
+**dependencies** they call — classified as cloud providers, services,
+platforms/SaaS, or generic externals — how they connect to one another, and
+who can access them: real repository members fetched from the provider (with
+their permissions, and tracked as `member`/`ex_member` as people come and go)
+alongside CODEOWNERS-derived `codeowner` grants. For each application it also
+captures internal **components** and their **observability signals**, the
+**use cases** they fulfil, and AI-generated **mermaid diagrams** (rendered
+locally). The `sync-repositories` job refreshes all of this on each run, removing
+data a repo no longer produces. The result is browsable as filterable tables, an
+interactive connection graph, and per-application detail pages.
 
 > Status: all milestones implemented (see [`docs/`](docs/)). Verified by 75
 > unit tests and 38 testcontainers-backed integration tests; ~85% line
@@ -69,7 +77,7 @@ for the full list. Key variables:
 | `ADMIN_USER` / `ADMIN_PASS` | — | Static admin login (generated if unset) |
 | `SESSION_SECRET` | dev value | Session signing secret |
 | `ENCRYPTION_KEY` | dev value | Base64 32-byte key for secrets at rest |
-| `WORKSPACE_DIR` | `workspace` | Where repositories are cloned |
+| `WORKSPACE_DIR` | `tmp/workspace` | Where repositories are cloned |
 
 ## Database & migrations
 
@@ -94,7 +102,7 @@ jQuery and Tailwind CSS are vendored under `assets/vendor/` and served from
 ```bash
 curl -L https://code.jquery.com/jquery-3.7.1.min.js  -o assets/vendor/jquery.min.js
 curl -L https://cdn.tailwindcss.com/3.4.16           -o assets/vendor/tailwind.js
-curl -L https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js -o assets/vendor/cytoscape.min.js
+curl -L https://unpkg.com/@antv/g6@5/dist/g6.min.js -o assets/vendor/g6.min.js
 ```
 
 Shared page behaviour lives in `assets/app.js`.
@@ -150,11 +158,19 @@ harness in `tests/common/`.
    the connection, preview the selected repositories.
 3. **Settings → AI agent profiles:** add an Anthropic or Claude-CLI profile and
    test it.
+   - **Settings → Entity kinds / Properties:** constrain the allowed `kind`
+     vocabulary per entity (so the AI can't emit `vcs` and `vcs-api` for the same
+     thing — out-of-list values become `other`) and define which properties the
+     analyzer extracts into each entity's metadata. Both ship seeded with
+     sensible defaults.
 4. **Jobs:** create a `review-repositories` job (set `ai_profile_id` in its
    config to enable analysis), run it, and watch the execution logs.
-5. **Platform:** browse applications, libraries, infrastructure, users and
-   groups as filterable tables, drill into details, and open the connection
-   graph.
+5. **Platform:** a tabbed section (defaulting to the **Graph**) — browse
+   applications, libraries, infrastructure, tools, cloud providers, services,
+   platforms, external dependencies, users and groups as filterable tables.
+   The application detail page shows properties + language breakdown and each
+   relation as a local searchable/filterable/paginated table that links onward;
+   the graph colours and toggles every entity kind.
 
 ## Project layout
 

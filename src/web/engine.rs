@@ -19,9 +19,10 @@ fn register(env: &mut Environment<'static>) {
         ("settings.html", include_str!("../../templates/settings.html")),
         ("jobs.html", include_str!("../../templates/jobs.html")),
         ("job_detail.html", include_str!("../../templates/job_detail.html")),
-        ("platform.html", include_str!("../../templates/platform.html")),
+        ("_platform_tabs.html", include_str!("../../templates/_platform_tabs.html")),
         ("platform_list.html", include_str!("../../templates/platform_list.html")),
         ("platform_detail.html", include_str!("../../templates/platform_detail.html")),
+        ("platform_app_detail.html", include_str!("../../templates/platform_app_detail.html")),
         ("platform_graph.html", include_str!("../../templates/platform_graph.html")),
     ];
     for (name, source) in templates {
@@ -77,5 +78,29 @@ mod tests {
         assert!(html.contains("Dashboard"));
         assert!(html.contains("admin"));
         assert!(html.contains("/assets/vendor/jquery.min.js"));
+    }
+
+    #[test]
+    fn renders_platform_templates_with_tabs() {
+        let engine = TemplateEngine::new();
+        // Graph page includes the shared tab partial (exercises its `{% set %}`).
+        let graph = engine
+            .render(
+                "platform_graph.html",
+                context! { current_user => "admin", active_nav => "platform", active_tab => "graph" },
+            )
+            .unwrap();
+        assert!(graph.contains("Tools"));
+        assert!(graph.contains("Cloud providers"));
+        // Application detail page renders its containers + assets.
+        let detail = engine
+            .render(
+                "platform_app_detail.html",
+                context! { current_user => "admin", active_nav => "platform",
+                           active_tab => "applications", entity => "applications", entity_id => "x" },
+            )
+            .unwrap();
+        assert!(detail.contains("app-relations"));
+        assert!(detail.contains("platform-app-detail.js"));
     }
 }

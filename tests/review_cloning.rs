@@ -1,4 +1,4 @@
-//! Integration test for the `review-repositories` cloning stage: a real local
+//! Integration test for the `sync-repositories` cloning stage: a real local
 //! git repository is discovered, cloned, and recorded.
 
 mod common;
@@ -76,8 +76,8 @@ async fn clones_local_repository_and_records_it() {
         .unwrap();
     assert_eq!(create_account.status(), StatusCode::OK);
 
-    // Create and run the review-repositories job.
-    let job = json!({ "name": "review", "job_type": "review-repositories", "trigger_type": "manual" });
+    // Create and run the sync-repositories job.
+    let job = json!({ "name": "review", "job_type": "sync-repositories", "trigger_type": "manual" });
     let create_job = app
         .clone()
         .oneshot(authed(Method::POST, "/api/jobs", &cookies, Some(job)))

@@ -22,6 +22,20 @@
   </div>
 
   <div data-panel="executions">
+    <div class="flex items-center justify-end gap-2 mb-2">
+      <select id="exec-status" class="border rounded px-2 py-1 text-sm">
+        <option value="">All statuses</option>
+        <option>queued</option>
+        <option>running</option>
+        <option>paused</option>
+        <option>succeeded</option>
+        <option>failed</option>
+        <option>cancelled</option>
+      </select>
+      <select id="exec-trigger" class="border rounded px-2 py-1 text-sm">
+        <option value="">All triggers</option>
+      </select>
+    </div>
     <table class="w-full bg-white rounded-lg shadow border border-slate-200" id="executions-table">
       <thead class="text-left text-slate-500 border-b">
         <tr><th class="p-2.5">Status</th><th>Trigger</th><th>Started</th><th>Finished</th><th></th></tr>

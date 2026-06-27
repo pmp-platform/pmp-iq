@@ -4,7 +4,7 @@
 use super::model::{
     AccountInput, AuthType, ProviderType, RemoteRepo, RepositoryAccount, SelectionMode,
 };
-use super::providers::{ProviderDeps, RepositoryProviderFactory};
+use super::providers::{ProviderDeps, RepoMember, RepositoryProviderFactory};
 use super::repository::RepositoryAccountRepository;
 use super::selector::RepoSelector;
 use crate::error::AppError;
@@ -128,6 +128,21 @@ impl AccountService {
     pub async fn preview(&self, id: Uuid) -> Result<Vec<RemoteRepo>, AppError> {
         let account = self.repo.get(id).await?;
         self.select_for(&account).await
+    }
+
+    /// List the members/collaborators of a repository via the account's
+    /// provider (empty for providers without a member concept).
+    pub async fn members_for(
+        &self,
+        account: &RepositoryAccount,
+        repo_full_name: &str,
+    ) -> Result<Vec<RepoMember>, AppError> {
+        let provider =
+            RepositoryProviderFactory::build(account, &self.deps).map_err(AppError::from)?;
+        provider
+            .list_members(repo_full_name)
+            .await
+            .map_err(AppError::from)
     }
 
     /// Resolve the selected repositories for a given account (reused by jobs).

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Detail · Platform Inspector{% endblock %}
 {% block content %}
+{% include "_platform_tabs.html" %}
 <a href="/platform/{{ entity }}" class="text-sm text-blue-600">&larr; {{ entity }}</a>
 <h1 class="text-2xl font-bold my-3" id="detail-title">Loading…</h1>
 <div id="detail-body" class="space-y-4"></div>

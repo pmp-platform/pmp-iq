@@ -26,6 +26,19 @@ as tables and a connection graph.
   each trait (Pg or SQLite impl chosen from the `Database`).
 - `src/error.rs` — `AppError` + HTTP mapping.
 - `src/appsettings.rs` — `SettingsRepository` (key/value).
+- `src/analysis_config/` — user-configured analysis vocabulary: `model`
+  (`EntityKind`/`EntityProperty` — both have id + friendly `name` + `description`;
+  kinds also a free-form `config` JSON (for diagram/observability-signal kinds),
+  properties also a `DataType`), `repository` (dual-engine `entity_kinds` +
+  `entity_properties` stores, full CRUD), `service` (`AnalysisConfigService`:
+  CRUD + `load()` → `platform::AnalysisConfig`). Allowed kinds (per entity type,
+  incl. application `app_type` + library `ecosystem`) and extraction properties
+  are injected into the analysis prompt strictly (the LLM must use only listed
+  ids/keys); on import `AnalysisResult::apply_config` drops entities with an
+  unlisted kind (an invalid application `app_type` is cleared) and strips
+  metadata keys outside the configured property set. Settings tabs "Entity
+  kinds" / "Properties"; routes in `routes/analysis_config.rs`. Every entity
+  table carries a `metadata` JSONB/TEXT column.
 - `src/auth/` — `LoginStrategy`/`StaticAdminStrategy`, `PasswordHasher` +
   `SecretGenerator` traits, `AuthService`, session `require_auth` middleware.
 - `src/web/` — `TemplateEngine` (embedded minijinja) + `render_page`.
@@ -44,18 +57,34 @@ as tables and a connection graph.
 - `src/workspace.rs` — `Workspace` (per-job dirs over `FileSystem`).
 - `src/repositories/` — cloned-repo records: `RepoRecord`,
   `RepoRecordRepository`.
-- `src/review/` — `ReviewRepositoriesJob` (job type `review-repositories`):
+- `src/review/` — `ReviewRepositoriesJob` (job type `sync-repositories`):
   clones selected repos from enabled accounts, then (when the job config sets
-  `ai_profile_id`) analyses each and writes the platform model.
-- `src/platform/` — `analysis` (`AnalysisResult` schema + parse/validate),
-  `analyzer` (`RepositoryAnalyzer`/`FileAnalyzer` — manifest signals + AI),
-  `writer` (`PlatformWriter` — idempotent find-or-create upserts into the
-  applications/languages/libraries/infrastructure/dependencies/users/groups/
-  access model), `query` (`PlatformQuery` — paginated/searchable lists + detail
-  views for applications/infrastructure/libraries/users/groups via `ListQuery`
-  + `Page<T>`), `graph` (`GraphQuery`/`GraphScope` — nodes+edges for the
-  connection graph, focus + truncation). Routes in `routes/platform.rs`;
-  generic list/detail templates + cytoscape graph page.
+  `ai_profile_id`) analyses each and writes the platform model; after the sweep it
+  calls `writer.prune_orphans()` to delete shared entities no longer referenced.
+- `src/platform/` — `analysis` (`AnalysisResult` schema + parse/validate;
+  `LinkedInfo` backs every linked entity; `AnalysisConfig`/`KindDef`/`PropertyDef`
+  + `apply_config` — drop disallowed kinds, strip unconfigured metadata keys),
+  `analyzer`
+  (`RepositoryAnalyzer`/`FileAnalyzer` — manifest signals + AI; system prompt
+  built from `AnalysisConfig` passed via `AnalysisInput`), `linked`
+  (`LinkedEntity` registry: the table-driven `(name,kind,version,metadata)`
+  entities — infrastructure, tools, cloud-providers, services, platforms,
+  external — sharing one writer/query/graph code path), `writer`
+  (`PlatformWriter` — idempotent find-or-create upserts into the
+  applications/languages/libraries/linked-entities/dependencies/users/groups/
+  access model + app-owned sub-entities (components, use_cases,
+  use_case_components, diagrams, observability_signals — delete-and-recreate per
+  sync via CASCADE); `reconcile_members` upserts provider members as `member` with
+  permissions, flips departed ones to `ex_member`, while AI access is written as
+  `codeowner` — `access_grants` carries `association_type` + `permissions`, one
+  row per principal per app; `prune_orphans` deletes unreferenced shared entities
+  (libs/versions/languages/linked), never users/groups), `query` (`PlatformQuery` — paginated/searchable/
+  filterable lists + `facets` for filter dropdowns + detail views for
+  applications/libraries/users/groups + every linked entity via `ListQuery`
+  (`filters` allowlisted per entity via `filter_fields`) + `Page<T>`), `graph` (`GraphQuery`/`GraphScope` — nodes+edges for
+  the connection graph, focus + truncation). Routes in `routes/platform.rs`
+  (`/platform` redirects to the Graph tab); shared `_platform_tabs.html`,
+  generic + application-specific detail templates, and an AntV G6 graph page.
 - `src/jobs/` — jobs subsystem: `model`, `repository` (jobs + executions),
   `job_type` (`JobType` trait + `JobTypeRegistry`; `JobContext` exposes
   `state`/`save_state`/`pause_requested`), `runner` (`JobRunner` — status
@@ -67,8 +96,10 @@ as tables and a connection graph.
   the controller is spawned in `main`.
 - `src/accounts/` — repository accounts: `model`, `repository`
   (`RepositoryAccountRepository`), `providers` (github/gitlab/local +
-  `RepositoryProviderFactory` over `ProviderDeps`), `selector` (`RepoSelector`),
-  `service` (`AccountService`).
+  `RepositoryProviderFactory` over `ProviderDeps`; `RepositoryProvider::list_members`
+  → `RepoMember`, implemented for GitHub via the collaborators API, empty default
+  elsewhere), `selector` (`RepoSelector`), `service` (`AccountService` exposes
+  `members_for`).
 - `src/routes/` — axum routers, merged in `routes::router` (public vs
   `require_auth`-gated). Sessions via tower-sessions `MemoryStore`. `AppState`
   is built via `AppState::build` (validates `ENCRYPTION_KEY`).

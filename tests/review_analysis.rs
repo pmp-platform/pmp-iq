@@ -1,4 +1,4 @@
-//! End-to-end test: the review-repositories job clones a local repo and
+//! End-to-end test: the sync-repositories job clones a local repo and
 //! analyses it through a (mocked) Anthropic endpoint, populating the platform
 //! model.
 
@@ -112,7 +112,7 @@ async fn review_job_analyses_and_populates_platform_model() {
 
     // Review job configured with the AI profile.
     let job = json!({
-        "name": "review", "job_type": "review-repositories", "trigger_type": "manual",
+        "name": "review", "job_type": "sync-repositories", "trigger_type": "manual",
         "config": { "ai_profile_id": profile_id }
     });
     let create_job = app

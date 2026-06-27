@@ -70,7 +70,7 @@ async fn review_job_self_pauses_on_rate_limit() {
     assert_eq!(create.status(), StatusCode::OK);
 
     // Run the review job.
-    let job = json!({ "name": "review", "job_type": "review-repositories", "trigger_type": "manual" });
+    let job = json!({ "name": "review", "job_type": "sync-repositories", "trigger_type": "manual" });
     let job_id = body_json(
         app.clone()
             .oneshot(authed(Method::POST, "/api/jobs", &cookies, Some(job)))

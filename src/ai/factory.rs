@@ -36,7 +36,14 @@ impl AiProviderFactory {
             AiProviderType::ClaudeCli => {
                 let config: ClaudeCliConfig = serde_json::from_value(profile.config.clone())
                     .map_err(|e| AiError::Config(e.to_string()))?;
-                Ok(Box::new(ClaudeCliProvider::new(deps.runner.clone(), config)))
+                // Optional: when present it's passed to the CLI as ANTHROPIC_API_KEY,
+                // otherwise the CLI falls back to its own configured auth.
+                let api_key = Self::decrypt_secret(profile, deps)?;
+                Ok(Box::new(ClaudeCliProvider::new(
+                    deps.runner.clone(),
+                    api_key,
+                    config,
+                )))
             }
         }
     }

@@ -70,6 +70,7 @@ async fn graph_has_app_infra_and_app_app_edges() {
         "billing",
         r#"{"application":{"name":"billing"},
             "infrastructure":[{"name":"PostgreSQL","kind":"database"}],
+            "tools":[{"name":"docker compose","kind":"orchestration"}],
             "dependencies":[{"target_name":"shipping","kind":"http"}]}"#,
     )
     .await;
@@ -90,8 +91,10 @@ async fn graph_has_app_infra_and_app_app_edges() {
     // 2 application nodes + 1 infrastructure node.
     let app_nodes = nodes.iter().filter(|n| n["data"]["kind"] == "application").count();
     let infra_nodes = nodes.iter().filter(|n| n["data"]["kind"] == "infrastructure").count();
+    let tool_nodes = nodes.iter().filter(|n| n["data"]["kind"] == "tools").count();
     assert_eq!(app_nodes, 2);
     assert_eq!(infra_nodes, 1);
+    assert_eq!(tool_nodes, 1);
 
     // An app->app edge and an app->infra edge exist.
     let has_http = edges.iter().any(|e| e["data"]["kind"] == "http");

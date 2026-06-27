@@ -28,12 +28,28 @@ pub struct ClaudeCliConfig {
 /// Runs the `claude` binary through the injected command runner.
 pub struct ClaudeCliProvider {
     runner: Arc<dyn CommandRunner>,
+    api_key: Option<String>,
     config: ClaudeCliConfig,
 }
 
 impl ClaudeCliProvider {
-    pub fn new(runner: Arc<dyn CommandRunner>, config: ClaudeCliConfig) -> Self {
-        Self { runner, config }
+    pub fn new(
+        runner: Arc<dyn CommandRunner>,
+        api_key: Option<String>,
+        config: ClaudeCliConfig,
+    ) -> Self {
+        Self { runner, api_key, config }
+    }
+
+    /// Environment for the CLI invocation. A configured API key is passed as
+    /// `ANTHROPIC_API_KEY`; when absent, the CLI uses its own configured auth.
+    fn env(&self) -> Vec<(String, String)> {
+        match self.api_key.as_deref() {
+            Some(key) if !key.is_empty() => {
+                vec![("ANTHROPIC_API_KEY".to_string(), key.to_string())]
+            }
+            _ => Vec::new(),
+        }
     }
 
     fn build_args(&self, request: &AiRequest) -> Vec<String> {
@@ -77,6 +93,7 @@ impl AiProvider for ClaudeCliProvider {
             program: self.config.binary_path.clone(),
             args: self.build_args(&request),
             stdin: None,
+            env: self.env(),
         };
         let output = self
             .runner
@@ -97,6 +114,7 @@ impl AiProvider for ClaudeCliProvider {
             program: self.config.binary_path.clone(),
             args: vec!["--version".to_string()],
             stdin: None,
+            env: self.env(),
         };
         let output = self
             .runner
@@ -137,10 +155,48 @@ mod tests {
                 stderr: String::new(),
             })
         });
-        let provider = ClaudeCliProvider::new(Arc::new(runner), config());
+        let provider = ClaudeCliProvider::new(Arc::new(runner), None, config());
         let out = provider.complete(AiRequest::new("hi")).await.unwrap();
         assert_eq!(out.text, "done");
         assert_eq!(out.input_tokens, Some(5));
+    }
+
+    #[tokio::test]
+    async fn api_key_passed_as_env_when_set() {
+        let mut runner = MockCommandRunner::new();
+        runner
+            .expect_run()
+            .withf(|spec| {
+                spec.env
+                    .iter()
+                    .any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == "sk-test")
+            })
+            .returning(|_| {
+                Ok(CommandOutput {
+                    status: 0,
+                    stdout: r#"{"result":"ok"}"#.into(),
+                    stderr: String::new(),
+                })
+            });
+        let provider = ClaudeCliProvider::new(Arc::new(runner), Some("sk-test".into()), config());
+        assert!(provider.complete(AiRequest::new("hi")).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn no_env_when_api_key_absent() {
+        let mut runner = MockCommandRunner::new();
+        runner
+            .expect_run()
+            .withf(|spec| spec.env.is_empty())
+            .returning(|_| {
+                Ok(CommandOutput {
+                    status: 0,
+                    stdout: r#"{"result":"ok"}"#.into(),
+                    stderr: String::new(),
+                })
+            });
+        let provider = ClaudeCliProvider::new(Arc::new(runner), None, config());
+        assert!(provider.complete(AiRequest::new("hi")).await.is_ok());
     }
 
     #[tokio::test]
@@ -149,7 +205,7 @@ mod tests {
         runner.expect_run().returning(|_| {
             Ok(CommandOutput { status: 1, stdout: String::new(), stderr: "boom".into() })
         });
-        let provider = ClaudeCliProvider::new(Arc::new(runner), config());
+        let provider = ClaudeCliProvider::new(Arc::new(runner), None, config());
         assert!(matches!(provider.complete(AiRequest::new("x")).await, Err(AiError::Request(_))));
     }
 

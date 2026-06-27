@@ -20,6 +20,12 @@ pub const PG_MIGRATIONS: Migrations = &[
     ("005_repositories", include_str!("../../db/migrations/20260101000005_create_repositories.sql")),
     ("006_platform_model", include_str!("../../db/migrations/20260101000006_create_platform_model.sql")),
     ("007_jobs_pause_and_locks", include_str!("../../db/migrations/20260101000007_jobs_pause_and_locks.sql")),
+    ("008_tools_and_dependency_entities", include_str!("../../db/migrations/20260101000008_create_tools_and_dependency_entities.sql")),
+    ("009_analysis_config_and_metadata", include_str!("../../db/migrations/20260101000009_analysis_config_and_metadata.sql")),
+    ("010_access_grants_membership", include_str!("../../db/migrations/20260101000010_access_grants_membership.sql")),
+    ("011_entity_kind_property_metadata", include_str!("../../db/migrations/20260101000011_entity_kind_property_metadata.sql")),
+    ("012_rename_sync_job", include_str!("../../db/migrations/20260101000012_rename_sync_job.sql")),
+    ("013_application_subentities", include_str!("../../db/migrations/20260101000013_application_subentities.sql")),
 ];
 
 /// Embedded SQLite migrations (dbmate format).
@@ -31,6 +37,12 @@ pub const SQLITE_MIGRATIONS: Migrations = &[
     ("005_repositories", include_str!("../../db/migrations_sqlite/20260101000005_create_repositories.sql")),
     ("006_platform_model", include_str!("../../db/migrations_sqlite/20260101000006_create_platform_model.sql")),
     ("007_jobs_pause_and_locks", include_str!("../../db/migrations_sqlite/20260101000007_jobs_pause_and_locks.sql")),
+    ("008_tools_and_dependency_entities", include_str!("../../db/migrations_sqlite/20260101000008_create_tools_and_dependency_entities.sql")),
+    ("009_analysis_config_and_metadata", include_str!("../../db/migrations_sqlite/20260101000009_analysis_config_and_metadata.sql")),
+    ("010_access_grants_membership", include_str!("../../db/migrations_sqlite/20260101000010_access_grants_membership.sql")),
+    ("011_entity_kind_property_metadata", include_str!("../../db/migrations_sqlite/20260101000011_entity_kind_property_metadata.sql")),
+    ("012_rename_sync_job", include_str!("../../db/migrations_sqlite/20260101000012_rename_sync_job.sql")),
+    ("013_application_subentities", include_str!("../../db/migrations_sqlite/20260101000013_application_subentities.sql")),
 ];
 
 /// Migrations matching the database's engine.
