@@ -2,6 +2,7 @@
 
 use super::{ListQuery, Page, PlatformQuery, filter_clause, filter_fields, table_for};
 use crate::db::{RepoError, RepoResult};
+use crate::platform::catalog::{Catalog, CatalogEntry};
 use crate::platform::linked::{LINKED, LinkedEntity, linked};
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -157,8 +158,10 @@ fn app_detail_sql() -> String {
             FROM application_libraries al JOIN library_versions v ON v.id=al.library_version_id \
             JOIN libraries lib ON lib.id=v.library_id WHERE al.application_id=a.id) AS libraries, \
          (SELECT json_agg(json_build_object('target_name', d.target_name, 'kind', d.kind, \
-             'description', d.description, 'target_app_id', ta.id)) \
+             'description', d.description, 'target_app_id', ta.id, \
+             'component_id', co.id, 'component_name', co.name)) \
             FROM application_dependencies d LEFT JOIN applications ta ON ta.name=d.target_name \
+            LEFT JOIN components co ON co.id=d.component_id \
             WHERE d.source_app_id=a.id) AS dependencies, \
          (SELECT json_agg(json_build_object('principal_type', g.principal_type, 'access_level', g.access_level, \
              'association_type', g.association_type, 'permissions', g.permissions, \
@@ -274,5 +277,16 @@ impl PlatformQuery for PgPlatformQuery {
             out.insert(field.to_string(), json!(rows.into_iter().map(|(v,)| v).collect::<Vec<_>>()));
         }
         Ok(Value::Object(out))
+    }
+
+    async fn catalog(&self) -> RepoResult<Catalog> {
+        let mut sql = String::from("SELECT name, 'application' AS kind FROM applications");
+        for e in LINKED {
+            sql.push_str(&format!(" UNION ALL SELECT name, '{}' AS kind FROM {}", e.name, e.table));
+        }
+        let rows: Vec<(String, String)> = sqlx::query_as(&sql).fetch_all(&self.pool).await?;
+        Ok(Catalog::new(
+            rows.into_iter().map(|(name, kind)| CatalogEntry { name, kind }).collect(),
+        ))
     }
 }

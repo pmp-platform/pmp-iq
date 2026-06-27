@@ -2,12 +2,14 @@
 
 pub mod analysis;
 pub mod analyzer;
+pub mod catalog;
 pub mod graph;
 pub mod linked;
 pub mod query;
 pub mod writer;
 
 pub use analysis::{AnalysisConfig, AnalysisResult, KindDef, MemberInfo, PropertyDef};
+pub use catalog::{Catalog, CatalogEntry};
 pub use analyzer::{
     AnalysisError, AnalysisInput, FileAnalyzer, RepositoryAnalyzer,
 };

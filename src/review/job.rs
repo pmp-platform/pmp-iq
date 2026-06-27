@@ -8,7 +8,8 @@ use crate::analysis_config::AnalysisConfigService;
 use crate::error::AppError;
 use crate::git::{CloneRequest, GitClient};
 use crate::jobs::{JobContext, JobError, JobOutcome, JobType};
-use crate::platform::{AnalysisInput, MemberInfo, PlatformWriter, RepositoryAnalyzer};
+use crate::platform::catalog::resolve_dependencies;
+use crate::platform::{AnalysisInput, Catalog, MemberInfo, PlatformQuery, PlatformWriter, RepositoryAnalyzer};
 use crate::repositories::{RepoRecord, RepoRecordInput, RepoRecordRepository};
 use crate::workspace::Workspace;
 use async_trait::async_trait;
@@ -29,6 +30,7 @@ pub struct ReviewDeps {
     pub workspace: Workspace,
     pub analyzer: Arc<dyn RepositoryAnalyzer>,
     pub writer: Arc<dyn PlatformWriter>,
+    pub platform: Arc<dyn PlatformQuery>,
     pub ai: AiProfileService,
     pub ai_deps: AiProviderDeps,
     pub analysis_config: AnalysisConfigService,
@@ -68,12 +70,20 @@ struct CloneTask<'a> {
     token: Option<String>,
 }
 
+/// AI context threaded through the clone/analyze path: the provider plus the
+/// run-start catalog snapshot used to canonicalize dependency targets.
+struct AnalysisCtx<'a> {
+    provider: Option<&'a dyn AiProvider>,
+    catalog: Option<&'a Catalog>,
+}
+
 /// Inputs for analysing one cloned repository (bundled to bound parameters).
 struct AnalyzeInput<'a> {
     record: &'a RepoRecord,
     checkout_path: &'a str,
     account: &'a RepositoryAccount,
     provider: &'a dyn AiProvider,
+    catalog: Option<&'a Catalog>,
 }
 
 /// Clones and analyses repositories from configured accounts.
@@ -113,7 +123,7 @@ impl ReviewRepositoriesJob {
         &self,
         ctx: &JobContext,
         account: &RepositoryAccount,
-        provider: Option<&dyn AiProvider>,
+        analysis: &AnalysisCtx<'_>,
         tally: &mut Tally,
     ) -> Result<(), AppError> {
         let selected = self.deps.accounts.select_for(account).await?;
@@ -126,7 +136,7 @@ impl ReviewRepositoriesJob {
                 remote,
                 token: token.clone(),
             };
-            self.clone_one(ctx, task, provider, tally).await;
+            self.clone_one(ctx, task, analysis, tally).await;
         }
         Ok(())
     }
@@ -137,7 +147,7 @@ impl ReviewRepositoriesJob {
         &self,
         ctx: &JobContext,
         task: CloneTask<'_>,
-        provider: Option<&dyn AiProvider>,
+        analysis: &AnalysisCtx<'_>,
         tally: &mut Tally,
     ) {
         let record = match self.upsert(task.account.id, task.remote).await {
@@ -151,12 +161,13 @@ impl ReviewRepositoriesJob {
         match self.do_clone(ctx, &record, task.remote, task.token).await {
             Ok(path) => {
                 tally.cloned += 1;
-                if let Some(provider) = provider {
+                if let Some(provider) = analysis.provider {
                     let input = AnalyzeInput {
                         record: &record,
                         checkout_path: &path,
                         account: task.account,
                         provider,
+                        catalog: analysis.catalog,
                     };
                     self.analyze(ctx, input, tally).await;
                 }
@@ -209,7 +220,7 @@ impl ReviewRepositoriesJob {
             provider: input.provider,
             config: cfg.clone(),
         };
-        let result = match self.deps.analyzer.analyze(analysis).await {
+        let mut result = match self.deps.analyzer.analyze(analysis).await {
             Ok(mut result) => {
                 result.apply_config(&cfg);
                 result
@@ -220,6 +231,12 @@ impl ReviewRepositoriesJob {
                 return;
             }
         };
+        if let Some(catalog) = input.catalog {
+            let n = resolve_dependencies(&mut result, catalog, Some(input.provider)).await;
+            if n > 0 {
+                ctx.log(&format!("resolved {n} dependency target(s) for {}", record.full_name)).await;
+            }
+        }
         match self.deps.writer.write(record.id, &result).await {
             Ok(app_id) => {
                 let _ = self.deps.repositories.mark_reviewed(record.id).await;
@@ -303,6 +320,23 @@ impl JobType for ReviewRepositoriesJob {
 
     async fn run(&self, ctx: JobContext) -> Result<JobOutcome, JobError> {
         let provider = self.build_provider(&ctx).await?;
+        // Snapshot the known-entity catalog once (best-effort) so analysis can
+        // canonicalize dependency targets without re-querying per repo.
+        let catalog = if provider.is_some() {
+            match self.deps.platform.catalog().await {
+                Ok(catalog) => Some(catalog),
+                Err(e) => {
+                    ctx.log(&format!("catalog snapshot failed: {e}")).await;
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let analysis_ctx = AnalysisCtx {
+            provider: provider.as_deref(),
+            catalog: catalog.as_ref(),
+        };
         let accounts = self
             .deps
             .accounts
@@ -334,7 +368,7 @@ impl JobType for ReviewRepositoriesJob {
                 });
             }
             match self
-                .process_account(&ctx, account, provider.as_deref(), &mut checkpoint.tally)
+                .process_account(&ctx, account, &analysis_ctx, &mut checkpoint.tally)
                 .await
             {
                 Ok(()) => {

@@ -64,6 +64,7 @@ async fn seed_app(db: &TestDb, app_name: &str) -> Uuid {
             "tools":[{{"name":"docker compose","kind":"orchestration","version":"2"}}],
             "cloud_providers":[{{"name":"AWS","kind":"cloud"}}],
             "access":[{{"principal_type":"group","principal_name":"devs","access_level":"write"}}],
+            "dependencies":[{{"target_name":"shipping","kind":"http","component":"PayController"}}],
             "components":[{{"name":"PayController","kind":"controller","observability_signals":[{{"name":"pays","kind":"metric"}}]}}],
             "use_cases":[{{"name":"Charge","description":"charge card","components":["PayController"],"diagrams":[{{"name":"Seq","kind":"sequence","content":"sequenceDiagram; A->>B: hi"}}]}}]}}"#
     );
@@ -157,6 +158,9 @@ async fn lists_filters_and_details() {
     assert_eq!(detail["detail"]["use_cases"][0]["name"], "Charge");
     assert_eq!(detail["detail"]["use_cases"][0]["components"][0]["name"], "PayController");
     assert_eq!(detail["detail"]["use_cases"][0]["diagrams"][0]["content"], "sequenceDiagram; A->>B: hi");
+    // The code-derived dependency is mapped to its originating component.
+    assert_eq!(detail["detail"]["dependencies"][0]["target_name"], "shipping");
+    assert_eq!(detail["detail"]["dependencies"][0]["component_name"], "PayController");
 
     // Infrastructure and groups lists are populated.
     let resp = app

@@ -59,10 +59,16 @@ as tables and a connection graph.
   `RepoRecordRepository`.
 - `src/review/` — `ReviewRepositoriesJob` (job type `sync-repositories`):
   clones selected repos from enabled accounts, then (when the job config sets
-  `ai_profile_id`) analyses each and writes the platform model; after the sweep it
-  calls `writer.prune_orphans()` to delete shared entities no longer referenced.
+  `ai_profile_id`) analyses each and writes the platform model. Snapshots the
+  entity catalog once at run start (`platform.catalog()`) and runs
+  `catalog::resolve_dependencies` on each result before write to canonicalize
+  dependency targets. After the sweep it calls `writer.prune_orphans()` to delete
+  shared entities no longer referenced.
 - `src/platform/` — `analysis` (`AnalysisResult` schema + parse/validate;
-  `LinkedInfo` backs every linked entity; `AnalysisConfig`/`KindDef`/`PropertyDef`
+  `LinkedInfo` backs every linked entity; dependencies are code-derived outbound
+  connections, each carrying a `component` name the writer resolves to a
+  `components` row (`application_dependencies.component_id`);
+  `AnalysisConfig`/`KindDef`/`PropertyDef`
   + `apply_config` — drop disallowed kinds, strip unconfigured metadata keys),
   `analyzer`
   (`RepositoryAnalyzer`/`FileAnalyzer` — manifest signals + AI; system prompt
@@ -81,7 +87,11 @@ as tables and a connection graph.
   (libs/versions/languages/linked), never users/groups), `query` (`PlatformQuery` — paginated/searchable/
   filterable lists + `facets` for filter dropdowns + detail views for
   applications/libraries/users/groups + every linked entity via `ListQuery`
-  (`filters` allowlisted per entity via `filter_fields`) + `Page<T>`), `graph` (`GraphQuery`/`GraphScope` — nodes+edges for
+  (`filters` allowlisted per entity via `filter_fields`) + `Page<T>` + `catalog()`
+  snapshot), `catalog` (`Catalog` — canonicalizes a dependency's free-form
+  `target_name` to a known entity via exact→normalized→fuzzy matching, with a
+  bounded provider shortlist for ambiguous fuzzy cases; rewriting the name lights
+  up the existing read-layer name-join — no schema change), `graph` (`GraphQuery`/`GraphScope` — nodes+edges for
   the connection graph, focus + truncation). Routes in `routes/platform.rs`
   (`/platform` redirects to the Graph tab); shared `_platform_tabs.html`,
   generic + application-specific detail templates, and an AntV G6 graph page.

@@ -21,7 +21,7 @@ shape: {\"application\":{\"name\":string,\"app_type\":string,\"description\":str
 \"services\":[{\"name\":string,\"kind\":string,\"version\":string,\"usage\":string,\"metadata\":object}],\
 \"platforms\":[{\"name\":string,\"kind\":string,\"version\":string,\"usage\":string,\"metadata\":object}],\
 \"external\":[{\"name\":string,\"kind\":string,\"version\":string,\"usage\":string,\"metadata\":object}],\
-\"dependencies\":[{\"target_name\":string,\"kind\":string,\"description\":string,\"metadata\":object}],\
+\"dependencies\":[{\"target_name\":string,\"kind\":string,\"description\":string,\"component\":string,\"metadata\":object}],\
 \"users\":[{\"username\":string,\"email\":string,\"groups\":[string],\"metadata\":object}],\
 \"groups\":[{\"name\":string,\"metadata\":object}],\
 \"access\":[{\"principal_type\":\"user\"|\"group\",\"principal_name\":string,\"access_level\":string}],\
@@ -37,8 +37,13 @@ Classify each discovered dependency into exactly one array: \
 'services' = third-party or internal network APIs the app calls (Stripe, Twilio, an internal auth-service); \
 'platforms' = SaaS for observability/identity/CI/error tracking (Datadog, Auth0, Sentry); \
 'external' = any other external dependency that fits none of the above; \
-'dependencies' = ONLY other applications in this same codebase that this app depends on, keyed by their repository/app name. \
-Never place the same thing in more than one array. \
+'dependencies' = the outbound connections THIS app makes to other applications or services, detected from \
+code (HTTP/REST/gRPC clients, database/cache/queue connections, SDK calls, configured service URLs or \
+hostnames). For each, set 'target_name' to the application or service it connects to, 'kind' to the \
+connection type (http, grpc, db, queue, cache, etc.), and 'component' to the EXACT name of the component \
+(from the 'components' array) that makes the connection. A target may also appear in 'services'/'external' \
+(the catalog of things used); 'dependencies' additionally records the connection edge and its component. \
+Never place the same thing in more than one of the catalog arrays (infrastructure/tools/cloud_providers/services/platforms/external). \
 Populate 'users', 'groups' and 'access' ONLY from a CODEOWNERS file (its code owners and owning teams); \
 leave all three as empty arrays when there is no CODEOWNERS file. Repository membership is collected \
 separately from the provider, so do not infer members from commits, READMEs or other files. \

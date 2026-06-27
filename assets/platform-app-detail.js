@@ -77,8 +77,8 @@
     });
     table($root, {
       title: "Dependencies", rows: d.dependencies || [],
-      columns: [["target_name", "Name"], ["kind", "Kind"], ["description", "Description"]],
-      filterKey: "kind",
+      columns: [["target_name", "Name"], ["kind", "Kind"], ["component_name", "Component"], ["description", "Description"]],
+      filterKeys: ["kind", "component_name"],
       link: function (row) { return row.target_app_id ? "/platform/applications/" + row.target_app_id : null; },
     });
     LINKED.forEach(function (t) {

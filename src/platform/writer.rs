@@ -278,14 +278,26 @@ macro_rules! platform_writer_impl {
                 Ok(())
             }
 
-            async fn write_dependencies(&self, app_id: Uuid, result: &AnalysisResult) -> RepoResult<()> {
+            async fn write_dependencies(
+                &self,
+                app_id: Uuid,
+                components: &HashMap<String, Uuid>,
+                result: &AnalysisResult,
+            ) -> RepoResult<()> {
                 for dep in &result.dependencies {
+                    let component_id = dep
+                        .component
+                        .as_ref()
+                        .and_then(|name| components.get(name))
+                        .copied();
                     sqlx::query(&$xform(
-                        "INSERT INTO application_dependencies (id, source_app_id, target_name, kind, description) \
-                         VALUES ($1,$2,$3,$4,$5) ON CONFLICT (source_app_id, target_name, kind) DO NOTHING",
+                        "INSERT INTO application_dependencies (id, source_app_id, component_id, target_name, kind, description) \
+                         VALUES ($1,$2,$3,$4,$5,$6) \
+                         ON CONFLICT (source_app_id, component_id, target_name, kind) DO NOTHING",
                     ))
                     .bind(Uuid::new_v4())
                     .bind(app_id)
+                    .bind(component_id)
                     .bind(&dep.target_name)
                     .bind(&dep.kind)
                     .bind(&dep.description)
@@ -485,9 +497,10 @@ macro_rules! platform_writer_impl {
                 self.write_languages(app_id, result).await?;
                 self.write_libraries(app_id, result).await?;
                 self.write_linked(app_id, result).await?;
-                self.write_dependencies(app_id, result).await?;
                 self.write_access(app_id, result).await?;
+                // Components first so dependencies and use cases can link to them.
                 let components = self.write_components(app_id, result).await?;
+                self.write_dependencies(app_id, &components, result).await?;
                 self.write_use_cases(app_id, &components, result).await?;
                 Ok(app_id)
             }

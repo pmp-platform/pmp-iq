@@ -4,6 +4,7 @@
 
 use super::{ListQuery, Page, PlatformQuery, filter_clause, filter_fields, table_for};
 use crate::db::{RepoError, RepoResult};
+use crate::platform::catalog::{Catalog, CatalogEntry};
 use crate::platform::linked::{LINKED, LinkedEntity, linked};
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -176,9 +177,10 @@ impl SqlitePlatformQuery {
              JOIN library_versions v ON v.id=al.library_version_id \
              JOIN libraries lib ON lib.id=v.library_id WHERE al.application_id=?1",
         ).bind(id).fetch_all(&self.pool).await?;
-        let dependencies: Vec<(String, Opt, Opt, Option<Uuid>)> = sqlx::query_as(
-            "SELECT d.target_name, d.kind, d.description, ta.id FROM application_dependencies d \
-             LEFT JOIN applications ta ON ta.name=d.target_name WHERE d.source_app_id=?1",
+        let dependencies: Vec<(String, Opt, Opt, Option<Uuid>, Option<Uuid>, Opt)> = sqlx::query_as(
+            "SELECT d.target_name, d.kind, d.description, ta.id, co.id, co.name FROM application_dependencies d \
+             LEFT JOIN applications ta ON ta.name=d.target_name \
+             LEFT JOIN components co ON co.id=d.component_id WHERE d.source_app_id=?1",
         ).bind(id).fetch_all(&self.pool).await?;
         let access: Vec<(String, Opt, String, Value, Opt)> = sqlx::query_as(
             "SELECT g.principal_type, g.access_level, g.association_type, g.permissions, \
@@ -195,7 +197,7 @@ impl SqlitePlatformQuery {
             "primary_language": primary_language, "metadata": metadata,
             "languages": languages.into_iter().map(|(name, percentage)| json!({"name": name, "percentage": percentage})).collect::<Vec<_>>(),
             "libraries": libraries.into_iter().map(|(id, name, ecosystem, version, scope, metadata)| json!({"id": id.to_string(), "name": name, "ecosystem": ecosystem, "version": version, "scope": scope, "metadata": metadata})).collect::<Vec<_>>(),
-            "dependencies": dependencies.into_iter().map(|(target_name, kind, description, target_app_id)| json!({"target_name": target_name, "kind": kind, "description": description, "target_app_id": target_app_id.map(|t| t.to_string())})).collect::<Vec<_>>(),
+            "dependencies": dependencies.into_iter().map(|(target_name, kind, description, target_app_id, component_id, component_name)| json!({"target_name": target_name, "kind": kind, "description": description, "target_app_id": target_app_id.map(|t| t.to_string()), "component_id": component_id.map(|c| c.to_string()), "component_name": component_name})).collect::<Vec<_>>(),
             "access": access.into_iter().map(|(principal_type, access_level, association_type, permissions, principal_name)| json!({"principal_type": principal_type, "access_level": access_level, "association_type": association_type, "permissions": permissions, "principal_name": principal_name})).collect::<Vec<_>>(),
             "components": components,
             "use_cases": use_cases,
@@ -382,5 +384,16 @@ impl PlatformQuery for SqlitePlatformQuery {
             out.insert(field.to_string(), json!(rows.into_iter().map(|(v,)| v).collect::<Vec<_>>()));
         }
         Ok(Value::Object(out))
+    }
+
+    async fn catalog(&self) -> RepoResult<Catalog> {
+        let mut sql = String::from("SELECT name, 'application' AS kind FROM applications");
+        for e in LINKED {
+            sql.push_str(&format!(" UNION ALL SELECT name, '{}' AS kind FROM {}", e.name, e.table));
+        }
+        let rows: Vec<(String, String)> = sqlx::query_as(&sql).fetch_all(&self.pool).await?;
+        Ok(Catalog::new(
+            rows.into_iter().map(|(name, kind)| CatalogEntry { name, kind }).collect(),
+        ))
     }
 }

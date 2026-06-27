@@ -26,6 +26,7 @@ pub const PG_MIGRATIONS: Migrations = &[
     ("011_entity_kind_property_metadata", include_str!("../../db/migrations/20260101000011_entity_kind_property_metadata.sql")),
     ("012_rename_sync_job", include_str!("../../db/migrations/20260101000012_rename_sync_job.sql")),
     ("013_application_subentities", include_str!("../../db/migrations/20260101000013_application_subentities.sql")),
+    ("014_dependency_component", include_str!("../../db/migrations/20260101000014_dependency_component.sql")),
 ];
 
 /// Embedded SQLite migrations (dbmate format).
@@ -43,6 +44,7 @@ pub const SQLITE_MIGRATIONS: Migrations = &[
     ("011_entity_kind_property_metadata", include_str!("../../db/migrations_sqlite/20260101000011_entity_kind_property_metadata.sql")),
     ("012_rename_sync_job", include_str!("../../db/migrations_sqlite/20260101000012_rename_sync_job.sql")),
     ("013_application_subentities", include_str!("../../db/migrations_sqlite/20260101000013_application_subentities.sql")),
+    ("014_dependency_component", include_str!("../../db/migrations_sqlite/20260101000014_dependency_component.sql")),
 ];
 
 /// Migrations matching the database's engine.

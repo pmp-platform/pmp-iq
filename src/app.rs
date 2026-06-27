@@ -89,6 +89,7 @@ impl AppState {
             workspace,
             analyzer: Arc::new(FileAnalyzer::new(Arc::new(RealFileSystem))),
             writer: store::platform_writer(&db),
+            platform: store::platform_query(&db),
             ai: ai.clone(),
             ai_deps: ai_deps.clone(),
             analysis_config: analysis_config.clone(),

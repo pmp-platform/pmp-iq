@@ -139,6 +139,9 @@ pub struct DependencyInfo {
     pub kind: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    /// Name of the component (from `components`) that makes this connection.
+    #[serde(default)]
+    pub component: Option<String>,
     #[serde(default)]
     pub metadata: Value,
 }

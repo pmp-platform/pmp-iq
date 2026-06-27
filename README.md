@@ -11,9 +11,13 @@ who can access them: real repository members fetched from the provider (with
 their permissions, and tracked as `member`/`ex_member` as people come and go)
 alongside CODEOWNERS-derived `codeowner` grants. For each application it also
 captures internal **components** and their **observability signals**, the
-**use cases** they fulfil, and AI-generated **mermaid diagrams** (rendered
-locally). The `sync-repositories` job refreshes all of this on each run, removing
-data a repo no longer produces. The result is browsable as filterable tables, an
+**use cases** they fulfil, AI-generated **mermaid diagrams** (rendered
+locally), and the outbound **dependencies** detected from code (the apps/services
+it connects to), each mapped to the component that makes the connection. Each
+dependency's target name is resolved against the catalog of already-known
+apps/services (exact → normalized → fuzzy), so connections link to existing
+entities instead of fragmenting into near-duplicates. The `sync-repositories` job
+refreshes all of this on each run, removing data a repo no longer produces. The result is browsable as filterable tables, an
 interactive connection graph, and per-application detail pages.
 
 > Status: all milestones implemented (see [`docs/`](docs/)). Verified by 75

@@ -21,7 +21,8 @@ const WITH_SUB: &str = r#"{
     {"name":"UserService","kind":"service","description":"logic"}],
   "use_cases":[
     {"name":"Register","description":"sign up","components":["UserController","UserService"],
-     "diagrams":[{"name":"Flow","kind":"flowchart","description":"d","content":"flowchart TD; A-->B"}]}]
+     "diagrams":[{"name":"Flow","kind":"flowchart","description":"d","content":"flowchart TD; A-->B"}]}],
+  "dependencies":[{"target_name":"payment-service","kind":"http","description":"charges","component":"UserService"}]
 }"#;
 
 async fn make_repo(db: &SqliteDb, full_name: &str) -> Uuid {
@@ -89,6 +90,11 @@ async fn persists_subentities_and_surfaces_in_detail() {
         .find(|c| c["name"] == "UserController")
         .unwrap();
     assert_eq!(controller["observability_signals"].as_array().unwrap().len(), 1);
+
+    // The code-derived dependency is mapped to its originating component.
+    let dep = &detail["dependencies"][0];
+    assert_eq!(dep["target_name"], "payment-service");
+    assert_eq!(dep["component_name"], "UserService");
 }
 
 #[tokio::test]
@@ -137,4 +143,47 @@ async fn prune_orphans_removes_unused_shared_entities_but_keeps_users() {
     assert_eq!(count(&db, "libraries").await, 0, "orphaned library pruned");
     assert_eq!(count(&db, "library_versions").await, 0, "orphaned version pruned");
     assert_eq!(count(&db, "users").await, 1, "users are never pruned");
+}
+
+#[tokio::test]
+async fn canonicalizes_dependency_target_against_catalog() {
+    use platform_inspector::platform::catalog::resolve_dependencies;
+
+    let db = SqliteDb::start().await;
+    let writer = store::platform_writer(&db.database());
+
+    // Seed two known applications the catalog can match against.
+    let auth_repo = make_repo(&db, "org/auth-service").await;
+    let auth_app_id = writer
+        .write(auth_repo, &AnalysisResult::parse(r#"{"application":{"name":"auth-service"}}"#).unwrap())
+        .await
+        .unwrap();
+    let billing_repo = make_repo(&db, "org/billing").await;
+    writer
+        .write(billing_repo, &AnalysisResult::parse(r#"{"application":{"name":"billing"}}"#).unwrap())
+        .await
+        .unwrap();
+
+    // Snapshot the catalog and resolve a consumer's fuzzy "auth" target
+    // (provider None → exact/normalized/fuzzy matching only, no LLM call).
+    let catalog = store::platform_query(&db.database()).catalog().await.unwrap();
+    assert!(!catalog.is_empty());
+    let mut result = AnalysisResult::parse(
+        r#"{"application":{"name":"consumer"},
+            "dependencies":[{"target_name":"auth","kind":"http","description":"login"}]}"#,
+    )
+    .unwrap();
+    assert_eq!(resolve_dependencies(&mut result, &catalog, None).await, 1);
+    assert_eq!(result.dependencies[0].target_name, "auth-service");
+
+    // Persist the consumer; the canonicalized target now links to the auth app.
+    let consumer_repo = make_repo(&db, "org/consumer").await;
+    let consumer_app_id = writer.write(consumer_repo, &result).await.unwrap();
+    let detail = store::platform_query(&db.database())
+        .detail("applications", consumer_app_id)
+        .await
+        .unwrap();
+    let dep = &detail["dependencies"][0];
+    assert_eq!(dep["target_name"], "auth-service");
+    assert_eq!(dep["target_app_id"], auth_app_id.to_string());
 }

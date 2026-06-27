@@ -79,7 +79,7 @@ async fn sqlite_platform_model_lists_details_and_graph() {
             "services":[{"name":"Stripe","kind":"payments"}],
             "platforms":[{"name":"Datadog","kind":"observability"}],
             "external":[{"name":"SomeAPI","kind":"misc"}],
-            "dependencies":[{"target_name":"shipping","kind":"http"},{"target_name":"auth","kind":"http"}],
+            "dependencies":[{"target_name":"shipping","kind":"http","component":"InvoiceController"},{"target_name":"auth","kind":"http"}],
             "users":[{"username":"alice","email":"a@x.com","groups":["devs"],"metadata":{"role":"lead"}}],
             "groups":[{"name":"devs","metadata":{"description":"engineers"}}],
             "access":[{"principal_type":"group","principal_name":"devs","access_level":"write"}],
@@ -162,6 +162,7 @@ async fn sqlite_platform_model_lists_details_and_graph() {
     let deps = detail["detail"]["dependencies"].as_array().unwrap();
     let shipping = deps.iter().find(|d| d["target_name"] == "shipping").unwrap();
     assert!(shipping["target_app_id"].is_string(), "shipping dep should link to the app");
+    assert_eq!(shipping["component_name"], "InvoiceController", "dependency mapped to component");
 
     // Other entity lists, including the new linked entities.
     for (entity, total) in [

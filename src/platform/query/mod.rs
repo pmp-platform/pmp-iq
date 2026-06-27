@@ -132,6 +132,9 @@ pub trait PlatformQuery: Send + Sync {
     /// Distinct values for each of the entity's filterable fields (for filter
     /// dropdowns): `{ field: [value, …] }`.
     async fn facets(&self, entity: &str) -> RepoResult<Value>;
+    /// Snapshot of known entity names a dependency can target (applications +
+    /// every linked entity), for canonicalizing dependency targets.
+    async fn catalog(&self) -> RepoResult<crate::platform::catalog::Catalog>;
 }
 
 /// Recognised platform entity names (for routing/validation).

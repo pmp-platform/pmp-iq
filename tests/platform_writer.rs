@@ -9,6 +9,7 @@ use platform_inspector::accounts::{AccountInput, AuthType, ProviderType, Selecti
 use platform_inspector::platform::AnalysisResult;
 use platform_inspector::repositories::RepoRecordInput;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 const ANALYSIS: &str = r#"{
   "application": {"name":"api","app_type":"api","description":"d","primary_language":"Rust","metadata":{"k":"v"}},
@@ -21,7 +22,8 @@ const ANALYSIS: &str = r#"{
   "services":[{"name":"Stripe","kind":"payments"}],
   "platforms":[{"name":"Datadog","kind":"observability"}],
   "external":[{"name":"SomeAPI","kind":"misc"}],
-  "dependencies":[{"target_name":"auth-service","kind":"http","description":"calls auth"}],
+  "dependencies":[{"target_name":"auth-service","kind":"http","description":"calls auth","component":"AuthClient"}],
+  "components":[{"name":"AuthClient","kind":"service","description":"calls the auth service"}],
   "users":[{"username":"alice","email":"alice@x.com","groups":["devs"],"metadata":{"role":"lead"}}],
   "groups":[{"name":"devs","metadata":{"description":"engineers"}}],
   "access":[{"principal_type":"group","principal_name":"devs","access_level":"write"},
@@ -107,6 +109,19 @@ async fn writes_full_model_and_is_idempotent() {
 
     let app_id = writer.write(record.id, &result).await.unwrap();
     assert_full_model(&db.pool).await;
+
+    // The dependency is mapped to the component that makes the connection.
+    let (dep_component,): (Option<Uuid>,) = sqlx::query_as(
+        "SELECT component_id FROM application_dependencies WHERE target_name='auth-service'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    let (component_id,): (Uuid,) = sqlx::query_as("SELECT id FROM components WHERE name='AuthClient'")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(dep_component, Some(component_id), "dependency mapped to its component");
 
     // Re-analysis: same application id, no duplicated rows.
     let app_id2 = writer.write(record.id, &result).await.unwrap();
