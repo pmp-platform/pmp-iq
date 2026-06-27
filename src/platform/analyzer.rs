@@ -50,10 +50,12 @@ separately from the provider, so do not infer members from commits, READMEs or o
 'components' are the internal building blocks of THIS application (e.g. controllers, models, services); \
 give each a thorough 'description' and list the observability signals (metrics, traces, logs) it emits. \
 'use_cases' are the capabilities the application fulfils; give each a thorough 'description', reference \
-the involved components by their exact 'name', and include one or more 'diagrams'. Each diagram's \
-'content' MUST be valid mermaid source that renders standalone (e.g. starts with 'flowchart TD', \
-'sequenceDiagram', 'classDiagram', etc.), and its 'kind' names the mermaid diagram type. Do not wrap \
-diagram content in markdown fences.";
+the involved components by their exact 'name', and ALWAYS include at least these two diagrams: \
+(1) a sequence diagram with 'kind' set to \"sequence\" whose 'content' is a mermaid sequenceDiagram \
+tracing the interaction between the actors and the involved components for this use case; and (2) a \
+component diagram with 'kind' set to \"component\" whose 'content' is a mermaid flowchart/graph showing \
+the involved components and how they connect. Each diagram's 'content' MUST be valid mermaid source that \
+renders standalone (no markdown fences), and its 'kind' names the mermaid diagram type.";
 
 /// Files to look for when building analysis context.
 const SIGNAL_FILES: &[&str] = &[

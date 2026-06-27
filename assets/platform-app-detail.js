@@ -163,11 +163,13 @@
       node: {
         type: "rect",
         style: {
-          size: [170, 42], radius: 6,
+          size: [180, 48], radius: 6,
           fill: function (n) { return n.data.fill || "#eff6ff"; },
           stroke: "#94a3b8", lineWidth: 1,
           labelText: function (n) { return n.data.label; },
-          labelPlacement: "center", labelFontSize: 11, labelFill: "#0f172a",
+          labelPlacement: "center", labelFontSize: 10, labelFill: "#0f172a",
+          // Wrap/truncate long labels so text stays inside the rectangle.
+          labelWordWrap: true, labelMaxWidth: 160, labelMaxLines: 2, labelTextOverflow: "ellipsis",
         },
       },
       edge: { type: "polyline", style: { stroke: "#94a3b8", endArrow: true } },
@@ -200,7 +202,7 @@
       $wrap.append('<div class="text-xs text-slate-500 mb-2">' + esc(diagram.description) + "</div>");
     }
     var $bar = $('<div class="flex gap-1 mb-2"></div>').appendTo($wrap);
-    var $view = $('<div class="overflow-auto border border-slate-200 rounded bg-white" style="max-height:60vh"></div>').appendTo($wrap);
+    var $view = $('<div class="overflow-auto border border-slate-200 rounded bg-white" style="height:72vh"></div>').appendTo($wrap);
     var $inner = $('<div style="transform-origin:top left; display:inline-block; padding:8px;"></div>').appendTo($view);
     var source = diagram.content || "";
 
@@ -252,42 +254,31 @@
 
   // ---- Use cases ----------------------------------------------------------
 
-  var modalGraph = null;
-
-  function renderComponentsDiagram($panel, uc) {
-    $panel.empty();
-    var comps = uc.components || [];
-    if (!comps.length) { $panel.html('<div class="text-sm text-slate-400">No components linked.</div>'); return; }
-    var $bar = $('<div class="flex gap-1 mb-2"></div>').appendTo($panel);
-    var $c = $('<div class="border border-slate-200 rounded" style="height:60vh"></div>').appendTo($panel);
-    var nodes = [{ id: "uc", data: { label: uc.name, fill: "#dbeafe" } }];
-    var edges = [];
-    comps.forEach(function (c, i) {
-      nodes.push({ id: "c" + i, data: { label: c.name, fill: "#f1f5f9" } });
-      edges.push({ id: "ce" + i, source: "uc", target: "c" + i });
-    });
-    if (modalGraph) { try { modalGraph.destroy(); } catch (e) { /* ignore */ } modalGraph = null; }
-    modalGraph = flowchart($c[0], nodes, edges, null);
-    attachG6Controls($bar, modalGraph);
+  // A diagram is a sequence diagram when tagged as such or when its mermaid
+  // source is a sequenceDiagram; everything else is treated as a component view.
+  function isSequence(d) {
+    return (d.kind || "").toLowerCase() === "sequence" || /^\s*sequenceDiagram/i.test(d.content || "");
   }
 
-  function renderFlowChart($panel, uc) {
+  function renderDiagramList($panel, diagrams, emptyMsg) {
     $panel.empty();
-    var diagrams = uc.diagrams || [];
-    if (!diagrams.length) { $panel.html('<div class="text-sm text-slate-400">No flow chart for this use case.</div>'); return; }
+    if (!diagrams.length) { $panel.html('<div class="text-sm text-slate-400">' + esc(emptyMsg) + "</div>"); return; }
     diagrams.forEach(function (dg) { renderDiagram($panel, dg); });
   }
 
   function openUseCaseModal(uc) {
     $("#uc-modal-title").text(uc.name || "Use case");
     $("#uc-modal-desc").text(uc.description || "").toggle(!!uc.description);
+    var diagrams = uc.diagrams || [];
+    var sequence = diagrams.filter(isSequence);
+    var component = diagrams.filter(function (d) { return !isSequence(d); });
     PI.openModal("#uc-modal");
-    // Defer to the next frame so the now-visible modal has laid out and the G6
-    // canvas sizes correctly.
+    // Defer to the next frame so the now-visible modal has laid out before the
+    // first diagram renders.
     requestAnimationFrame(function () {
       tabset($("#uc-modal-tabs"), $("#uc-modal-body"), [
-        { label: "Components Diagram", render: function ($p) { renderComponentsDiagram($p, uc); } },
-        { label: "Flow Chart", render: function ($p) { renderFlowChart($p, uc); } },
+        { label: "Sequence diagram", render: function ($p) { renderDiagramList($p, sequence, "No sequence diagram for this use case."); } },
+        { label: "Component diagram", render: function ($p) { renderDiagramList($p, component, "No component diagram for this use case."); } },
       ]);
     });
   }

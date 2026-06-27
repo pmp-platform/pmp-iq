@@ -175,9 +175,10 @@ harness in `tests/common/`.
    services, platforms, external dependencies, users and groups as filterable
    tables. The application detail page is itself tabbed: an **Overview** pairing a
    focused connection graph (the app, its dependencies and infrastructure) with
-   its properties (friendly names) and languages; a **Use cases** tab with
-   interactive flowcharts (use cases → their components) plus the generated
-   mermaid diagrams; per-relation tables (services, cloud providers, platforms,
+   its properties (friendly names) and languages; a **Use cases** tab showing a
+   flowchart of use cases — clicking one opens a wide modal with its **Sequence
+   diagram** and **Component diagram** (mermaid, generated per use case, with
+   zoom/reset controls); per-relation tables (services, cloud providers, platforms,
    libraries, tools, external, components, observability signals — each shown
    only when present); and an always-present **Members** tab.
 

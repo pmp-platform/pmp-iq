@@ -98,8 +98,10 @@ as tables and a connection graph.
   The platform graph shows applications only by default (other kinds opt-in via
   the legend); the application detail is client-side **tabbed** (`assets/
   platform-app-detail.js`): Overview (focused app→deps→infra G6 graph +
-  properties/languages), Use cases (G6 flowcharts use cases→components + mermaid),
-  conditional per-relation tables, and an always-present Members tab.
+  properties/languages), Use cases (G6 flowchart of use cases → click opens a
+  wide modal with Sequence + Component mermaid diagrams; the analyzer always
+  emits both per use case), conditional per-relation tables, and an
+  always-present Members tab. Diagrams have zoom/reset controls; wheel-zoom off.
 - `src/jobs/` — jobs subsystem: `model`, `repository` (jobs + executions),
   `job_type` (`JobType` trait + `JobTypeRegistry`; `JobContext` exposes
   `state`/`save_state`/`pause_requested`), `runner` (`JobRunner` — status
