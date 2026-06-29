@@ -23,8 +23,10 @@ pub fn routes() -> Router<AppState> {
         .route("/platform", get(overview_page))
         .route("/platform/graph", get(graph_page))
         .route("/platform/dashboard", get(dashboard_page))
+        .route("/platform/c4", get(c4_page))
         .route("/api/platform/graph", get(graph_api))
         .route("/api/platform/dashboard", get(dashboard_api))
+        .route("/api/platform/c4", get(c4_api))
         .route("/platform/:entity", get(list_page))
         .route("/platform/:entity/:id", get(detail_page))
         .route("/api/platform/applications/:id/sync", post(sync_application))
@@ -596,6 +598,24 @@ async fn dashboard_api(State(state): State<AppState>) -> AppResult<Json<Value>> 
     let apps = state.platform.list("applications", &q).await?;
     let metrics = state.metrics.latest_all().await?;
     Ok(Json(crate::dashboard::build(&apps.items, &metrics)))
+}
+
+/// The C4 model page (M29).
+async fn c4_page(
+    State(state): State<AppState>,
+    Extension(user): Extension<Principal>,
+) -> AppResult<Html<String>> {
+    let page = PageContext::new(Some(user.display_name), "platform");
+    render_page(&state.engine, "c4.html", &page, context! { active_tab => "c4" })
+}
+
+/// C4 export: Structurizr DSL + C4 Mermaid for the whole platform.
+async fn c4_api(State(state): State<AppState>) -> AppResult<Json<Value>> {
+    let graph = state.graph.build(&GraphScope::new(None, Some(800))).await?;
+    Ok(Json(json!({
+        "dsl": crate::c4::structurizr_dsl(&graph),
+        "mermaid": crate::c4::mermaid_context(&graph),
+    })))
 }
 
 async fn list_page(

@@ -10,6 +10,7 @@ pub mod analysis_config;
 pub mod app;
 pub mod appsettings;
 pub mod auth;
+pub mod c4;
 pub mod codebase_map;
 pub mod config;
 pub mod crypto;

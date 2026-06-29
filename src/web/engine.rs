@@ -26,6 +26,7 @@ fn register(env: &mut Environment<'static>) {
         ("platform_app_detail.html", include_str!("../../templates/platform_app_detail.html")),
         ("platform_graph.html", include_str!("../../templates/platform_graph.html")),
         ("dashboard.html", include_str!("../../templates/dashboard.html")),
+        ("c4.html", include_str!("../../templates/c4.html")),
     ];
     for (name, source) in templates {
         env.add_template(name, source)

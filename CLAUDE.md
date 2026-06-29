@@ -94,6 +94,11 @@ as tables and a connection graph.
   `assets/platform-app-agent.js`. `GitClient` gains
   `create_branch`/`commit_all`/`push_branch`; `RepositoryProvider` gains
   `open_pull_request`/`get_pull_request` (GitHub impl, `Unsupported` default).
+- `src/c4.rs` — **C4 model** (M29): projects the platform graph (applications =
+  systems; infra/services/external = external systems; edges = relationships)
+  into `structurizr_dsl` + `mermaid_context` (C4 System-Context). Page
+  `/platform/c4` (C4 tab) + `GET /api/platform/c4` → `{dsl, mermaid}`;
+  `assets/platform-c4.js` renders the Mermaid + shows the DSL.
 - `src/codebase_map.rs` — **codebase map** (M28): `build_map` derives a
   bounded directory/module structure graph (nodes = directories, edges =
   containment; depth/node caps with `truncated`) from a cloned checkout via the
