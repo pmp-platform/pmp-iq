@@ -2,24 +2,24 @@
 //! HTTP server. Contains no business logic.
 
 use clap::Parser;
-use platform_inspector::app::{AppState, build_router};
-use platform_inspector::auth::{
+use platiq::app::{AppState, build_router};
+use platiq::auth::{
     Argon2Hasher, AuthService, GitHubIdentity, HttpGitHubIdentity, RandomSecretGenerator,
 };
-use platform_inspector::config::{AuthProvider, Config, ConfigLoader, SystemEnv};
-use platform_inspector::db::Database;
-use platform_inspector::fs::RealFileSystem;
-use platform_inspector::httpclient::ReqwestClient;
-use platform_inspector::jobs::{
+use platiq::config::{AuthProvider, Config, ConfigLoader, SystemEnv};
+use platiq::db::Database;
+use platiq::fs::RealFileSystem;
+use platiq::httpclient::ReqwestClient;
+use platiq::jobs::{
     ControllerDeps, CronScheduler, JobController, Scheduler, SystemClock,
 };
-use platform_inspector::telemetry;
+use platiq::telemetry;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Platform Inspector server.
+/// PlatIQ server.
 #[derive(Debug, Parser)]
-#[command(name = "platform-inspector", version, about)]
+#[command(name = "platiq", version, about)]
 struct Cli {
     /// Path to a `config.yaml` (defaults to one beside the binary, then `./config.yaml`).
     #[arg(long = "config-file")]
@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
     // SQLite is the zero-config default: create the schema automatically.
     // PostgreSQL deployments manage schema with dbmate (see README).
     if matches!(db, Database::Sqlite(_)) {
-        platform_inspector::db::migrate::apply(&db, platform_inspector::db::migrate::SQLITE_MIGRATIONS)
+        platiq::db::migrate::apply(&db, platiq::db::migrate::SQLITE_MIGRATIONS)
             .await?;
         tracing::info!("sqlite schema ensured");
     }
@@ -82,11 +82,14 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState::build(config, db, Arc::new(boot.service), github_identity)?;
 
     // Ensure the singleton job that backs per-application LLM questions exists.
-    if let Err(e) = platform_inspector::llm_request::ensure_job(state.jobs_repo.as_ref()).await {
+    if let Err(e) = platiq::llm_request::ensure_job(state.jobs_repo.as_ref()).await {
         tracing::warn!(error = %e, "failed to seed llm-repository-request job");
     }
     // Ensure the singleton job that backs application AI Agent tasks exists.
-    if let Err(e) = platform_inspector::agent_tasks::ensure_job(state.jobs_repo.as_ref()).await {
+    if let Err(e) =
+        platiq::agent_tasks::ensure_job(state.jobs_repo.as_ref(), state.config.agent_max_concurrency)
+            .await
+    {
         tracing::warn!(error = %e, "failed to seed application-agent-task job");
     }
 
@@ -113,7 +116,7 @@ async fn main() -> anyhow::Result<()> {
 
     let router = build_router(state);
 
-    tracing::info!(%addr, "starting platform-inspector");
+    tracing::info!(%addr, "starting platiq");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())

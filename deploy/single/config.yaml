@@ -6,7 +6,7 @@ server:
   port: 8080
 
 database:
-  url: "sqlite:///data/platform_inspector.db?mode=rwc"
+  url: "sqlite:///data/platiq.db?mode=rwc"
   max_connections: 10
 
 redis:

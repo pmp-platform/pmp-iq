@@ -7,7 +7,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use common::{TestDb, build_state};
 use http_body_util::BodyExt;
-use platform_inspector::app::build_router;
+use platiq::app::build_router;
 use tower::ServiceExt;
 
 async fn body_string(resp: axum::response::Response) -> String {

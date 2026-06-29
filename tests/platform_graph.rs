@@ -1,7 +1,7 @@
 //! Integration test for the platform connection-graph API.
 
 mod common;
-use platform_inspector::store;
+use platiq::store;
 
 use axum::body::Body;
 use axum::http::header::COOKIE;
@@ -9,10 +9,10 @@ use axum::http::{Method, Request};
 use axum::response::Response;
 use common::{TestDb, build_state, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platform_inspector::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platform_inspector::app::build_router;
-use platform_inspector::platform::AnalysisResult;
-use platform_inspector::repositories::RepoRecordInput;
+use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use platiq::app::build_router;
+use platiq::platform::AnalysisResult;
+use platiq::repositories::RepoRecordInput;
 use serde_json::Value;
 use tower::ServiceExt;
 

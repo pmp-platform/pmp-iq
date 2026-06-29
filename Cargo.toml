@@ -1,16 +1,16 @@
 [package]
-name = "platform-inspector"
+name = "platiq"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-default-run = "platform-inspector"
+default-run = "platiq"
 
 [lib]
-name = "platform_inspector"
+name = "platiq"
 path = "src/lib.rs"
 
 [[bin]]
-name = "platform-inspector"
+name = "platiq"
 path = "src/main.rs"
 
 [dependencies]

@@ -1,4 +1,4 @@
-# Platform Inspector — project notes
+# PlatIQ — project notes
 
 Rust 2024 web app: connects to git accounts (GitHub/GitLab/local), clones
 selected repos, runs AI analysis, and builds a queryable platform model
@@ -162,7 +162,12 @@ as tables and a connection graph.
   `heartbeat_at`. The runner heartbeats each execution in the background for its
   whole run, so staleness only catches executions whose worker has died (its
   heartbeat task can no longer beat). Job types register in `AppState::build`;
-  the controller is spawned in `main`.
+  the controller is spawned in `main`. Jobs carry a `max_concurrency` (in
+  `config.max_concurrency`, default 1); the runner admits up to that many running
+  executions per job and **queues** the rest (no more blanket 409), and the
+  controller's `dispatch_queued` starts queued executions as slots free (global
+  cap `GLOBAL_MAX_ACTIVE`). The agent-task job's concurrency comes from
+  `agent.max_concurrency` config (default 4).
 - `src/accounts/` — repository accounts: `model`, `repository`
   (`RepositoryAccountRepository`), `providers` (github/gitlab/local +
   `RepositoryProviderFactory` over `ProviderDeps`; `RepositoryProvider::list_members`

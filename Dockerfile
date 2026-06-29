@@ -8,7 +8,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY . .
-RUN cargo build --release --bin platform-inspector
+RUN cargo build --release --bin platiq
 
 # --- Runtime: slim image with just the binary, assets, and migrations ------
 FROM debian:bookworm-slim AS runtime
@@ -17,11 +17,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 10001 app
 WORKDIR /app
-COPY --from=builder /build/target/release/platform-inspector /usr/local/bin/platform-inspector
+COPY --from=builder /build/target/release/platiq /usr/local/bin/platiq
 COPY --from=builder /build/assets /app/assets
 COPY --from=builder /build/db /app/db
 # Persisted data (SQLite file, cloned workspaces) live under /data.
 RUN mkdir -p /data && chown -R app:app /app /data
 USER app
 EXPOSE 8080
-ENTRYPOINT ["platform-inspector"]
+ENTRYPOINT ["platiq"]

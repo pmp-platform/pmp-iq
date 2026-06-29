@@ -12,7 +12,7 @@ use axum::routing::get;
 use axum::Router;
 use common::{SqliteDb, build_state_sqlite, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platform_inspector::app::build_router;
+use platiq::app::build_router;
 use serde_json::{Value, json};
 use std::time::Duration;
 use tower::ServiceExt;

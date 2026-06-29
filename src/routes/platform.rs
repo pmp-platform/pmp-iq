@@ -126,7 +126,9 @@ async fn enqueue_turn(
     message: &str,
 ) -> AppResult<Uuid> {
     let profile_id = default_profile(state).await?;
-    let job_id = crate::agent_tasks::ensure_job(state.jobs_repo.as_ref()).await?;
+    let job_id =
+        crate::agent_tasks::ensure_job(state.jobs_repo.as_ref(), state.config.agent_max_concurrency)
+            .await?;
     let params = json!({ "task_id": task.id, "message": message, "ai_profile_id": profile_id });
     state.runner.start_with_params(job_id, "agent", params).await
 }

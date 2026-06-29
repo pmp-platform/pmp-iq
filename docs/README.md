@@ -1,6 +1,6 @@
-# Platform Inspector — Milestones
+# PlatIQ — Milestones
 
-Platform Inspector is a Rust 2024 web application that connects to one or more
+PlatIQ is a Rust 2024 web application that connects to one or more
 source-control accounts (GitHub, GitLab, or local repositories), clones the
 selected repositories, runs AI-driven analysis over them, and builds a queryable
 **platform model**: applications, the languages/libraries they use, the
@@ -39,6 +39,16 @@ explicit acceptance criteria. Implement them in order.
 | 20 | [milestone-20-docker-compose-topologies.md](milestone-20-docker-compose-topologies.md) | Docker Compose topologies (single & distributed) |
 | 21 | [milestone-21-github-login.md](milestone-21-github-login.md) | GitHub login (GitHub App / personal token) |
 | 22 | [milestone-22-application-ai-agent-tasks.md](milestone-22-application-ai-agent-tasks.md) | Application "AI Agent" tab — change tasks & PRs |
+| 23 | [milestone-23-multi-repo-agent-tasks.md](milestone-23-multi-repo-agent-tasks.md) | Multi-repository AI Agent tasks |
+| 24 | [milestone-24-pr-watcher-polling.md](milestone-24-pr-watcher-polling.md) | PR watcher (polling) — comments, conflicts & failed checks |
+| 25 | [milestone-25-webhooks.md](milestone-25-webhooks.md) | Webhooks — PR events & merge-driven re-sync |
+| 26 | [milestone-26-catalog-nl-query.md](milestone-26-catalog-nl-query.md) | Natural-language query over the whole catalog |
+| 27 | [milestone-27-configurable-job-concurrency.md](milestone-27-configurable-job-concurrency.md) | Configurable job concurrency |
+| 28 | [milestone-28-codebase-maps.md](milestone-28-codebase-maps.md) | Auto-generated interactive codebase maps |
+| 29 | [milestone-29-c4-model.md](milestone-29-c4-model.md) | C4 model views & export |
+| 30 | [milestone-30-batch-changes.md](milestone-30-batch-changes.md) | Batch changes — large-scale edits across many repos |
+| 31 | [milestone-31-quality-metrics.md](milestone-31-quality-metrics.md) | LLM-collected quality metrics (tests, coverage, complexity) |
+| 32 | [milestone-32-platform-dashboard.md](milestone-32-platform-dashboard.md) | Platform metrics & insights dashboard |
 
 ## Architecture at a glance
 

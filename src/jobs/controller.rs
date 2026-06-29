@@ -84,11 +84,28 @@ impl JobController {
         let due = self.deps.jobs.list_due(now).await.unwrap_or_default();
         for job in &due {
             let _ = self.deps.jobs.set_next_run_at(job.id, None).await;
+            // Don't pile up scheduled runs: skip if one is already in flight.
+            if self.deps.executions.count_running(job.id).await.unwrap_or(0) > 0 {
+                continue;
+            }
             if let Err(e) = self.deps.runner.start(job.id, "schedule").await {
                 tracing::warn!(job = %job.id, error = %e, "scheduled start failed");
             }
         }
         due.len()
+    }
+
+    /// Start queued executions that now have a free concurrency slot. Returns how
+    /// many were started this tick.
+    pub async fn dispatch_queued(&self) -> usize {
+        let queued = self.deps.executions.list_queued(64).await.unwrap_or_default();
+        let mut started = 0;
+        for exec in &queued {
+            if self.deps.runner.dispatch_one(exec.job_id).await {
+                started += 1;
+            }
+        }
+        started
     }
 
     /// Cancel running executions whose heartbeat has gone stale (older than the
@@ -113,9 +130,10 @@ impl JobController {
             if self.is_leader().await {
                 let resumed = self.resume_due().await;
                 let started = self.run_due_jobs().await;
+                let dispatched = self.dispatch_queued().await;
                 let cancelled = self.cancel_stale().await;
-                if resumed > 0 || started > 0 || cancelled > 0 {
-                    tracing::info!(resumed, started, cancelled, "controller tick");
+                if resumed > 0 || started > 0 || dispatched > 0 || cancelled > 0 {
+                    tracing::info!(resumed, started, dispatched, cancelled, "controller tick");
                 }
             }
             tokio::time::sleep(self.tick).await;

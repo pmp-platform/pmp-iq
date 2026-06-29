@@ -21,7 +21,7 @@ makes every later milestone fast to start.
 ### Project layout
 
 ```
-platform-inspector/
+platiq/
 ├── Cargo.toml                 # edition = "2024"
 ├── docker-compose.yml
 ├── .env.example

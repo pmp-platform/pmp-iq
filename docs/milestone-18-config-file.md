@@ -85,7 +85,7 @@ can reference secrets that remain in the environment:
 
 ```yaml
 database:
-  url: "${DATABASE_URL:-sqlite://platform_inspector.db?mode=rwc}"
+  url: "${DATABASE_URL:-sqlite://platiq.db?mode=rwc}"
 auth:
   github:
     client_secret: "${GITHUB_CLIENT_SECRET}"
@@ -104,7 +104,7 @@ server:
 
 database:
   # engine is inferred from the url scheme (postgres:// → Postgres, else SQLite)
-  url: "sqlite://platform_inspector.db?mode=rwc"
+  url: "sqlite://platiq.db?mode=rwc"
   max_connections: 10
 
 redis:                       # consumed in M19; disabled by default

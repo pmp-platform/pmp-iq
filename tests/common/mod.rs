@@ -6,10 +6,10 @@
 
 #![allow(dead_code)]
 
-use platform_inspector::app::AppState;
-use platform_inspector::auth::{Argon2Hasher, AuthService, RandomSecretGenerator};
-use platform_inspector::config::{Config, MapEnv};
-use platform_inspector::db::{Database, migrate};
+use platiq::app::AppState;
+use platiq::auth::{Argon2Hasher, AuthService, RandomSecretGenerator};
+use platiq::config::{Config, MapEnv};
+use platiq::db::{Database, migrate};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{PgPool, SqlitePool};

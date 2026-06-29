@@ -1,4 +1,4 @@
-# Platform Inspector — example configuration file.
+# PlatIQ — example configuration file.
 #
 # Copy to `config.yaml` next to the binary (or pass `--config-file <path>`).
 # The file is OPTIONAL: with no file present the app uses environment variables
@@ -12,7 +12,7 @@ server:
 
 database:
   # Engine is inferred from the URL scheme: postgres:// → Postgres, else SQLite.
-  url: "${DATABASE_URL:-sqlite://platform_inspector.db?mode=rwc}"
+  url: "${DATABASE_URL:-sqlite://platiq.db?mode=rwc}"
   max_connections: 10
 
 # Redis is disabled by default. Enable it to back the distributed lock across
@@ -37,6 +37,11 @@ auth:
 
 log:
   level: info                # RUST_LOG still wins when set
+
+agent:
+  # Max AI-Agent turns that run in parallel (per-repo locks still serialise
+  # same-repo work). Default 4.
+  max_concurrency: 4
 
 workspace_dir: tmp/workspace
 git_min_interval_ms: 250

@@ -198,8 +198,8 @@ impl AgentTaskJob {
             .commit_all(CommitRequest {
                 checkout: state.checkout.clone(),
                 message: format!("AI Agent: {}", state.task.title),
-                author_name: "Platform Inspector Agent".to_string(),
-                author_email: "agent@platform-inspector.local".to_string(),
+                author_name: "PlatIQ Agent".to_string(),
+                author_email: "agent@platiq.local".to_string(),
             })
             .await
             .map_err(|e| JobError::Failed(e.to_string()))?;
@@ -359,11 +359,13 @@ fn agent_system(full_name: &str) -> String {
 }
 
 fn pr_body(summary: &str) -> String {
-    format!("Automated change by the Platform Inspector AI Agent.\n\n{summary}")
+    format!("Automated change by the PlatIQ AI Agent.\n\n{summary}")
 }
 
-/// Find the singleton `application-agent-task` job, creating it if absent.
-pub async fn ensure_job(jobs: &dyn JobRepository) -> Result<Uuid, AppError> {
+/// Find the singleton `application-agent-task` job, creating it if absent. The
+/// `max_concurrency` (config) lets agent turns run in parallel up to that many at
+/// once (per-repo locks still serialise same-repo work).
+pub async fn ensure_job(jobs: &dyn JobRepository, max_concurrency: u32) -> Result<Uuid, AppError> {
     let existing = jobs.list().await?;
     if let Some(job) = existing.iter().find(|j| j.job_type == JOB_TYPE) {
         return Ok(job.id);
@@ -374,7 +376,7 @@ pub async fn ensure_job(jobs: &dyn JobRepository) -> Result<Uuid, AppError> {
             name: "AI Agent tasks".to_string(),
             trigger_type: TriggerType::Manual,
             cron_expr: None,
-            config: json!({}),
+            config: json!({ "max_concurrency": max_concurrency.max(1) }),
             enabled: true,
             next_run_at: None,
         })
@@ -510,7 +512,7 @@ mod tests {
     #[test]
     fn pr_body_wraps_summary() {
         assert!(pr_body("changed x").contains("changed x"));
-        assert!(pr_body("changed x").contains("Platform Inspector AI Agent"));
+        assert!(pr_body("changed x").contains("PlatIQ AI Agent"));
     }
 
     #[tokio::test]
@@ -730,7 +732,7 @@ mod tests {
                 next_run_at: input.next_run_at,
             })
         });
-        let created = ensure_job(&jobs).await.unwrap();
+        let created = ensure_job(&jobs, 4).await.unwrap();
 
         let mut jobs2 = MockJobRepository::new();
         jobs2.expect_list().returning(move || {
@@ -745,6 +747,6 @@ mod tests {
                 next_run_at: None,
             }])
         });
-        assert_eq!(ensure_job(&jobs2).await.unwrap(), created);
+        assert_eq!(ensure_job(&jobs2, 4).await.unwrap(), created);
     }
 }

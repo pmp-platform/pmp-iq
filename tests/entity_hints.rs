@@ -5,11 +5,11 @@
 mod common;
 
 use common::SqliteDb;
-use platform_inspector::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platform_inspector::hints::EntityHintInput;
-use platform_inspector::platform::AnalysisResult;
-use platform_inspector::repositories::RepoRecordInput;
-use platform_inspector::store;
+use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use platiq::hints::EntityHintInput;
+use platiq::platform::AnalysisResult;
+use platiq::repositories::RepoRecordInput;
+use platiq::store;
 
 const ANALYSIS: &str = r#"{
   "application": {"name":"api","app_type":"api","description":"d","primary_language":"Rust","metadata":{}},

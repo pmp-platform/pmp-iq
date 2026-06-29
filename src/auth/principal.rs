@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// An authenticated operator (the person logging into Platform Inspector).
+/// An authenticated operator (the person logging into PlatIQ).
 ///
 /// Distinct from the discovered platform `users`/`groups` model populated by
 /// the review job.

@@ -196,6 +196,9 @@ pub struct Config {
     /// Logging filter/level fed to `telemetry::init` (`RUST_LOG` still wins).
     pub log_level: String,
     pub workspace_dir: String,
+    /// Max concurrent executions of the AI-Agent job (parallel turns). Per-repo
+    /// locks still serialise same-repo work. Default 4.
+    pub agent_max_concurrency: u32,
     /// Minimum interval (ms) between outbound git-provider API calls (throttle).
     pub git_min_interval_ms: u64,
     /// Cache-busting version appended to asset URLs (`?v=`). Taken from
@@ -278,7 +281,7 @@ fn resolve_bool(
 
 fn load_database(env: &dyn EnvSource, file: &FileDatabase) -> Result<DatabaseConfig, ConfigError> {
     // SQLite file in the working directory is the zero-config default.
-    let default_url = "sqlite://platform_inspector.db?mode=rwc";
+    let default_url = "sqlite://platiq.db?mode=rwc";
     Ok(DatabaseConfig {
         url: resolve_str(env, "DATABASE_URL", file.url.as_deref(), default_url),
         max_connections: resolve_u32(env, "DATABASE_MAX_CONNECTIONS", file.max_connections, 10)?,
@@ -391,6 +394,12 @@ impl Config {
                 file.workspace_dir.as_deref(),
                 "tmp/workspace",
             ),
+            agent_max_concurrency: resolve_u32(
+                env,
+                "AGENT_MAX_CONCURRENCY",
+                file.agent.max_concurrency,
+                4,
+            )?,
             git_min_interval_ms: resolve_u64(
                 env,
                 "GIT_API_MIN_INTERVAL_MS",
@@ -416,9 +425,16 @@ struct FileConfig {
     redis: FileRedis,
     auth: FileAuth,
     log: FileLog,
+    agent: FileAgent,
     workspace_dir: Option<String>,
     git_min_interval_ms: Option<u64>,
     app_version: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileAgent {
+    max_concurrency: Option<u32>,
 }
 
 #[derive(Debug, Default, Deserialize)]

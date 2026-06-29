@@ -9,12 +9,12 @@ use axum::http::Request;
 use axum::http::header::{CONTENT_TYPE, COOKIE};
 use common::{SqliteDb, build_state_sqlite, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platform_inspector::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platform_inspector::ai::{AiProfileInput, AiProviderType};
-use platform_inspector::app::build_router;
-use platform_inspector::platform::AnalysisResult;
-use platform_inspector::repositories::RepoRecordInput;
-use platform_inspector::store;
+use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use platiq::ai::{AiProfileInput, AiProviderType};
+use platiq::app::build_router;
+use platiq::platform::AnalysisResult;
+use platiq::repositories::RepoRecordInput;
+use platiq::store;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 

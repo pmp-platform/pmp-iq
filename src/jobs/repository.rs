@@ -47,7 +47,20 @@ pub trait JobExecutionRepository: Send + Sync {
     async fn list(&self, limit: i64) -> RepoResult<Vec<JobExecution>>;
     /// Recent executions of one job, newest first.
     async fn list_for_job(&self, job_id: Uuid, limit: i64) -> RepoResult<Vec<JobExecution>>;
+    /// In-flight (queued + running) executions of a job.
     async fn count_running(&self, job_id: Uuid) -> RepoResult<i64>;
+    /// Currently-running (not queued) executions of a job — a free slot exists
+    /// while this is below the job's `max_concurrency`.
+    async fn count_active(&self, job_id: Uuid) -> RepoResult<i64>;
+    /// Currently-running executions across all jobs (the global concurrency cap).
+    async fn count_all_active(&self) -> RepoResult<i64>;
+    /// The oldest queued execution of a job (FIFO), if any.
+    async fn next_queued(&self, job_id: Uuid) -> RepoResult<Option<JobExecution>>;
+    /// Queued executions across all jobs, oldest first (for the dispatcher).
+    async fn list_queued(&self, limit: i64) -> RepoResult<Vec<JobExecution>>;
+    /// Atomically claim a queued execution (`queued → running`). Returns `true`
+    /// when this caller won the claim (so it should start it).
+    async fn claim_queued(&self, id: Uuid, now: DateTime<Utc>) -> RepoResult<bool>;
     /// Persist a job's resume checkpoint without changing status.
     async fn save_state(&self, id: Uuid, state: &Value) -> RepoResult<()>;
     /// Signal a running execution to pause cooperatively.
@@ -454,6 +467,59 @@ macro_rules! exec_repo_impl {
                 .fetch_one(&self.pool)
                 .await?;
                 Ok(count)
+            }
+
+            async fn count_active(&self, job_id: Uuid) -> RepoResult<i64> {
+                let (count,): (i64,) = sqlx::query_as(&$xform(
+                    "SELECT COUNT(*) FROM job_executions WHERE job_id=$1 AND status='running'",
+                ))
+                .bind(job_id)
+                .fetch_one(&self.pool)
+                .await?;
+                Ok(count)
+            }
+
+            async fn count_all_active(&self) -> RepoResult<i64> {
+                let (count,): (i64,) = sqlx::query_as(
+                    "SELECT COUNT(*) FROM job_executions WHERE status='running'",
+                )
+                .fetch_one(&self.pool)
+                .await?;
+                Ok(count)
+            }
+
+            async fn next_queued(&self, job_id: Uuid) -> RepoResult<Option<JobExecution>> {
+                let row: Option<ExecRow> = sqlx::query_as(&$xform(&format!(
+                    "SELECT {EXEC_COLS} FROM job_executions WHERE job_id=$1 AND status='queued' \
+                     ORDER BY created_at LIMIT 1"
+                )))
+                .bind(job_id)
+                .fetch_optional(&self.pool)
+                .await?;
+                row.map(JobExecution::try_from).transpose()
+            }
+
+            async fn list_queued(&self, limit: i64) -> RepoResult<Vec<JobExecution>> {
+                let rows: Vec<ExecRow> = sqlx::query_as(&$xform(&format!(
+                    "SELECT {EXEC_COLS} FROM job_executions WHERE status='queued' \
+                     ORDER BY created_at LIMIT $1"
+                )))
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?;
+                rows.into_iter().map(JobExecution::try_from).collect()
+            }
+
+            async fn claim_queued(&self, id: Uuid, now: DateTime<Utc>) -> RepoResult<bool> {
+                let res = sqlx::query(&$xform(
+                    "UPDATE job_executions SET status='running', started_at=$2, heartbeat_at=$2 \
+                     WHERE id=$1 AND status='queued'",
+                ))
+                .bind(id)
+                .bind(now)
+                .execute(&self.pool)
+                .await?;
+                Ok(res.rows_affected() > 0)
             }
         }
     };

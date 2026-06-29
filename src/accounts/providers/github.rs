@@ -73,7 +73,7 @@ impl GitHubProvider {
     /// Apply the standard GitHub headers + bearer auth to any request.
     fn authed(&self, req: HttpRequest) -> HttpRequest {
         let mut req = req
-            .header("User-Agent", "platform-inspector")
+            .header("User-Agent", "platiq")
             .header("Accept", "application/vnd.github+json");
         if let Some(token) = &self.token {
             req = req.header("Authorization", format!("Bearer {token}"));

@@ -8,13 +8,13 @@ use axum::http::Request;
 use axum::http::header::{CONTENT_TYPE, COOKIE};
 use common::{SqliteDb, build_state_sqlite, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platform_inspector::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platform_inspector::agent_tasks::NewAgentTask;
-use platform_inspector::ai::{AiProfileInput, AiProviderType};
-use platform_inspector::app::build_router;
-use platform_inspector::platform::AnalysisResult;
-use platform_inspector::repositories::RepoRecordInput;
-use platform_inspector::store;
+use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use platiq::agent_tasks::NewAgentTask;
+use platiq::ai::{AiProfileInput, AiProviderType};
+use platiq::app::build_router;
+use platiq::platform::AnalysisResult;
+use platiq::repositories::RepoRecordInput;
+use platiq::store;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -27,7 +27,7 @@ const ANALYSIS: &str = r#"{
 }"#;
 
 /// Seed an application (account + repo + analysis) and an enabled AI profile.
-async fn seed_app(db: &platform_inspector::db::Database) -> Uuid {
+async fn seed_app(db: &platiq::db::Database) -> Uuid {
     let account = store::accounts(db)
         .create(AccountInput {
             name: "gh".into(),

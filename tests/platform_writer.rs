@@ -2,12 +2,12 @@
 //! result populates every model table, and re-analysis is idempotent.
 
 mod common;
-use platform_inspector::store;
+use platiq::store;
 
 use common::TestDb;
-use platform_inspector::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platform_inspector::platform::AnalysisResult;
-use platform_inspector::repositories::RepoRecordInput;
+use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use platiq::platform::AnalysisResult;
+use platiq::repositories::RepoRecordInput;
 use sqlx::PgPool;
 use uuid::Uuid;
 

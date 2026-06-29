@@ -16,6 +16,9 @@ use uuid::Uuid;
 const DEFAULT_RESCHEDULE_MINUTES: i64 = 5;
 /// Interval at which the runner heartbeats a running execution in the background.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
+/// Process-wide ceiling on concurrently-running executions across all jobs, to
+/// bound resource use regardless of per-job `max_concurrency`.
+const GLOBAL_MAX_ACTIVE: i64 = 16;
 
 /// One execution to run (bundles inputs to bound parameter count).
 pub struct ExecutionRun {
@@ -53,27 +56,85 @@ impl JobRunner {
         self.start_with_params(job_id, trigger, Value::Null).await
     }
 
-    /// Start a job with per-execution input. Returns the execution id.
+    /// Start a job with per-execution input. Creates a queued execution and
+    /// starts it immediately when the job has a free concurrency slot; otherwise
+    /// it stays queued and the controller's dispatcher starts it when one frees.
+    /// Returns the execution id (the caller polls it regardless).
     pub async fn start_with_params(
         self: &Arc<Self>,
         job_id: Uuid,
         trigger: &str,
         params: Value,
     ) -> Result<Uuid, AppError> {
-        let job = self.deps.jobs.get(job_id).await?;
-        if self.deps.executions.count_running(job_id).await? > 0 {
-            return Err(AppError::Conflict("job already running".into()));
-        }
+        // Validate the job exists before enqueuing.
+        self.deps.jobs.get(job_id).await?;
         let execution = self.deps.executions.create(job_id, trigger, &params).await?;
-        let execution_id = execution.id;
+        self.dispatch_one(job_id).await;
+        Ok(execution.id)
+    }
 
+    /// A job's configured max concurrent (running) executions (`config
+    /// .max_concurrency`, default 1). Per-repo locks still serialise same-repo
+    /// work regardless of this.
+    pub fn job_max_concurrency(job: &Job) -> i64 {
+        job.config
+            .get("max_concurrency")
+            .and_then(|v| v.as_i64())
+            .filter(|&n| n > 0)
+            .unwrap_or(1)
+    }
+
+    /// Start the oldest queued execution of `job_id` if the job (and the global
+    /// cap) has a free slot. Returns whether one was started; a no-op (false)
+    /// when at capacity or nothing is queued.
+    pub async fn dispatch_one(self: &Arc<Self>, job_id: Uuid) -> bool {
+        let job = match self.deps.jobs.get(job_id).await {
+            Ok(job) => job,
+            Err(_) => return false,
+        };
+        if self.deps.executions.count_all_active().await.unwrap_or(0) >= GLOBAL_MAX_ACTIVE {
+            return false;
+        }
+        if self.deps.executions.count_active(job_id).await.unwrap_or(0)
+            >= Self::job_max_concurrency(&job)
+        {
+            return false;
+        }
+        match self.deps.executions.next_queued(job_id).await {
+            Ok(Some(exec)) => self.dispatch(exec.id).await,
+            _ => false,
+        }
+    }
+
+    /// Atomically claim a queued execution and run it in the background. Returns
+    /// whether this caller won the claim (so two instances never double-start).
+    pub async fn dispatch(self: &Arc<Self>, execution_id: Uuid) -> bool {
+        let now = self.deps.clock.now();
+        if !self
+            .deps
+            .executions
+            .claim_queued(execution_id, now)
+            .await
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        let exec = match self.deps.executions.get(execution_id).await {
+            Ok(exec) => exec,
+            Err(_) => return false,
+        };
+        let job = match self.deps.jobs.get(exec.job_id).await {
+            Ok(job) => job,
+            Err(_) => return false,
+        };
+        let state = exec.state.unwrap_or(Value::Null);
         let runner = Arc::clone(self);
         tokio::spawn(async move {
             runner
-                .run_execution(ExecutionRun { execution_id, job, state: Value::Null, params })
+                .run_execution(ExecutionRun { execution_id, job, state, params: exec.params })
                 .await;
         });
-        Ok(execution_id)
+        true
     }
 
     /// Resume a paused execution from its persisted checkpoint, in the
@@ -450,5 +511,74 @@ mod tests {
         // No further `update` is expected (mockall fails if one occurs).
         let runner = JobRunner::new(deps(registry, clock, log, executions));
         runner.run_execution(run_of(sample_job("ok"))).await;
+    }
+
+    // --- M27: configurable concurrency / queue dispatch ----------------------
+
+    fn job_with_concurrency(n: i64) -> Job {
+        Job { config: json!({ "max_concurrency": n }), ..sample_job("agent") }
+    }
+
+    fn arc_runner(jobs: MockJobRepository, exec: MockJobExecutionRepository) -> Arc<JobRunner> {
+        let mut clock = MockClock::new();
+        clock.expect_now().returning(|| chrono::Utc.timestamp_opt(0, 0).unwrap());
+        Arc::new(JobRunner::new(RunnerDeps {
+            jobs: Arc::new(jobs),
+            executions: Arc::new(exec),
+            registry: Arc::new(JobTypeRegistry::new()),
+            clock: Arc::new(clock),
+            log_sink: Arc::new(MockLogSink::new()),
+        }))
+    }
+
+    #[test]
+    fn job_max_concurrency_reads_config_with_floor() {
+        assert_eq!(JobRunner::job_max_concurrency(&job_with_concurrency(3)), 3);
+        assert_eq!(JobRunner::job_max_concurrency(&sample_job("x")), 1); // default
+        assert_eq!(JobRunner::job_max_concurrency(&job_with_concurrency(0)), 1); // floored to 1
+    }
+
+    #[tokio::test]
+    async fn dispatch_one_skips_at_per_job_capacity() {
+        let job = job_with_concurrency(2);
+        let jid = job.id;
+        let mut jobs = MockJobRepository::new();
+        jobs.expect_get().returning(move |_| Ok(job.clone()));
+        let mut exec = MockJobExecutionRepository::new();
+        exec.expect_count_all_active().returning(|| Ok(0));
+        exec.expect_count_active().returning(|_| Ok(2)); // at capacity
+        exec.expect_next_queued().never(); // never reached
+        let runner = arc_runner(jobs, exec);
+        assert!(!runner.dispatch_one(jid).await);
+    }
+
+    #[tokio::test]
+    async fn dispatch_one_skips_at_global_cap() {
+        let job = job_with_concurrency(4);
+        let jid = job.id;
+        let mut jobs = MockJobRepository::new();
+        jobs.expect_get().returning(move |_| Ok(job.clone()));
+        let mut exec = MockJobExecutionRepository::new();
+        exec.expect_count_all_active().returning(|| Ok(GLOBAL_MAX_ACTIVE));
+        exec.expect_count_active().never(); // global cap short-circuits
+        let runner = arc_runner(jobs, exec);
+        assert!(!runner.dispatch_one(jid).await);
+    }
+
+    #[tokio::test]
+    async fn dispatch_one_claims_queued_when_slot_free() {
+        let job = job_with_concurrency(2);
+        let jid = job.id;
+        let mut jobs = MockJobRepository::new();
+        jobs.expect_get().returning(move |_| Ok(job.clone()));
+        let mut exec = MockJobExecutionRepository::new();
+        exec.expect_count_all_active().returning(|| Ok(0));
+        exec.expect_count_active().returning(|_| Ok(0)); // free slot
+        exec.expect_next_queued().returning(|_| Ok(Some(exec_with(ExecStatus::Queued))));
+        // Lost the atomic claim (another worker started it) → no spawn, returns false,
+        // but the claim path was exercised.
+        exec.expect_claim_queued().times(1).returning(|_, _| Ok(false));
+        let runner = arc_runner(jobs, exec);
+        assert!(!runner.dispatch_one(jid).await);
     }
 }

@@ -1,7 +1,7 @@
 //! Integration test for the AI agent profiles HTTP API and data layer.
 
 mod common;
-use platform_inspector::store;
+use platiq::store;
 
 use axum::body::Body;
 use axum::http::header::{CONTENT_TYPE, COOKIE};
@@ -9,8 +9,8 @@ use axum::http::{Method, Request, StatusCode};
 use axum::response::Response;
 use common::{TestDb, build_state, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platform_inspector::ai::{AiProfileInput, AiProviderType};
-use platform_inspector::app::build_router;
+use platiq::ai::{AiProfileInput, AiProviderType};
+use platiq::app::build_router;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 

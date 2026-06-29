@@ -1,7 +1,7 @@
 //! Integration test for `Git2Client` against real local repositories: clone,
 //! fetch/sync, branch, commit, and push (exercises `src/git.rs`).
 
-use platform_inspector::git::{CloneRequest, CommitRequest, Git2Client, GitClient, PushRequest};
+use platiq::git::{CloneRequest, CommitRequest, Git2Client, GitClient, PushRequest};
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;

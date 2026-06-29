@@ -249,7 +249,7 @@
   // Confirm before logging out, then submit the real logout form.
   function initLogout() {
     $(document).on("click", "#logout-btn", function () {
-      confirmAction("Log out of Platform Inspector?", function () {
+      confirmAction("Log out of PlatIQ?", function () {
         $("#logout-form").get(0).submit();
       });
     });

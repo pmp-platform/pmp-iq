@@ -4,11 +4,11 @@
 
 mod common;
 use common::SqliteDb;
-use platform_inspector::store;
+use platiq::store;
 
-use platform_inspector::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platform_inspector::platform::{AnalysisResult, MemberInfo};
-use platform_inspector::repositories::RepoRecordInput;
+use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use platiq::platform::{AnalysisResult, MemberInfo};
+use platiq::repositories::RepoRecordInput;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;

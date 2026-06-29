@@ -1,4 +1,4 @@
-//! Platform Inspector library crate.
+//! PlatIQ library crate.
 //!
 //! Exposes the application's modules so both the binary entrypoint and the
 //! integration test suite can build and exercise the app.

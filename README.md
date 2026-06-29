@@ -1,6 +1,6 @@
-# Platform Inspector
+# PlatIQ
 
-Platform Inspector connects to one or more source-control accounts (GitHub,
+PlatIQ connects to one or more source-control accounts (GitHub,
 GitLab, or local repositories), clones the repositories you select, runs
 AI-driven analysis over them, and builds a queryable **platform model**:
 applications, the languages and libraries they use, the infrastructure and
@@ -61,7 +61,7 @@ To use PostgreSQL instead, set `DATABASE_URL` to a `postgres://` URL and apply
 migrations with dbmate:
 
 ```bash
-export DATABASE_URL=postgres://postgres:postgres@localhost:5432/platform_inspector
+export DATABASE_URL=postgres://postgres:postgres@localhost:5432/platiq
 bin/up.sh migrate                    # start Postgres + run dbmate (Windows: bin\up.bat migrate)
 cargo run
 ```
@@ -97,14 +97,14 @@ Configuration is layered: an **optional `config.yaml`** provides values, the
   [`config.example.yaml`](config.example.yaml) for the full schema.
 
 ```bash
-platform-inspector --config-file /etc/platform-inspector/config.yaml
+platiq --config-file /etc/platiq/config.yaml
 ```
 
 Key settings (env var | `config.yaml` path):
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `DATABASE_URL` \| `database.url` | `sqlite://platform_inspector.db?mode=rwc` | SQLite file (default) or a `postgres://` URL |
+| `DATABASE_URL` \| `database.url` | `sqlite://platiq.db?mode=rwc` | SQLite file (default) or a `postgres://` URL |
 | `PORT` \| `server.port` | `8080` | HTTP port |
 | `REDIS_ENABLED` \| `redis.enabled` | `false` | Use Redis to back the distributed lock |
 | `REDIS_URL` \| `redis.url` | `redis://localhost:6379` | Redis connection URL |
