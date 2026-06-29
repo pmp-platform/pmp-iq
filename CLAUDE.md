@@ -94,6 +94,12 @@ as tables and a connection graph.
   `assets/platform-app-agent.js`. `GitClient` gains
   `create_branch`/`commit_all`/`push_branch`; `RepositoryProvider` gains
   `open_pull_request`/`get_pull_request` (GitHub impl, `Unsupported` default).
+- `src/metrics/` — **quality metrics** (M31): `model` (`Metric`/`ApplicationMetric`),
+  dual-engine `ApplicationMetricsRepository` (`record`/`latest_for_application`/
+  `latest_all`; history kept), `job` (`CollectMetricsJob`, type `collect-metrics`:
+  per-repo-locked clone → LLM extracts tests/coverage/complexity/LOC/has_ci from
+  CI + codebase → `parse_metrics` normalises, omitting nulls). Routes
+  `GET`/`POST /api/platform/applications/:id/metrics`; Insights tab on app detail.
 - `src/nl_query.rs` — **Ask the platform** (M26): `CatalogQuery` answers a
   natural-language question grounded in a serialised `GraphQuery` snapshot of the
   catalog (system prompt forbids inventing data). Route `POST /api/platform/ask`;

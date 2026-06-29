@@ -62,6 +62,7 @@ pub struct AppState {
     pub lock: Arc<dyn DistributedLock>,
     pub hints: Arc<dyn EntityHintRepository>,
     pub agent_tasks: Arc<dyn AgentTaskRepository>,
+    pub metrics: Arc<dyn crate::metrics::ApplicationMetricsRepository>,
 }
 
 impl AppState {
@@ -113,6 +114,7 @@ impl AppState {
         let lock = store::distributed_lock(&db, &config.redis)?;
         let hints = store::entity_hints(&db);
         let agent_tasks = store::agent_tasks(&db);
+        let app_metrics = store::application_metrics(&db);
         let workspace = Workspace::new(Arc::new(RealFileSystem), config.workspace_dir.clone());
         let review_job = ReviewRepositoriesJob::new(ReviewDeps {
             accounts: accounts.clone(),
@@ -142,9 +144,20 @@ impl AppState {
             accounts: accounts.clone(),
             repositories: repo_records.clone(),
             git: Arc::new(Git2Client),
+            workspace: workspace.clone(),
+            ai: ai.clone(),
+            ai_deps: ai_deps.clone(),
+            lock: lock.clone(),
+        });
+        let metrics_job = crate::metrics::CollectMetricsJob::new(crate::metrics::CollectMetricsDeps {
+            platform: store::platform_query(&db),
+            repositories: repo_records.clone(),
+            accounts: accounts.clone(),
+            git: Arc::new(Git2Client),
             workspace,
             ai: ai.clone(),
             ai_deps: ai_deps.clone(),
+            metrics: app_metrics.clone(),
             lock: lock.clone(),
         });
         let pr_watcher_job = crate::pr_watcher::PrWatcherJob::new(crate::pr_watcher::PrWatcherDeps {
@@ -163,6 +176,7 @@ impl AppState {
         registry.register(Arc::new(llm_job));
         registry.register(Arc::new(agent_job));
         registry.register(Arc::new(pr_watcher_job));
+        registry.register(Arc::new(metrics_job));
         let registry = Arc::new(registry);
         let runner = Arc::new(JobRunner::new(RunnerDeps {
             jobs: jobs_repo.clone(),
@@ -197,6 +211,7 @@ impl AppState {
             lock,
             hints,
             agent_tasks,
+            metrics: app_metrics,
         })
     }
 }

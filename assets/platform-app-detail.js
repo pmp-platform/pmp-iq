@@ -500,6 +500,33 @@
       else { $p.html('<div class="text-sm text-red-600">File explorer unavailable.</div>'); }
     } });
 
+    tabs.push({ label: "Insights", render: function ($p) {
+      var base = "/api/platform/applications/" + d.id + "/metrics";
+      $p.html('<div class="bg-white rounded-lg shadow border border-slate-200 p-4">' +
+        '<div class="flex items-center justify-between mb-2"><div class="font-semibold">Quality metrics</div>' +
+        '<button id="metrics-collect" type="button" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">Collect</button></div>' +
+        '<div id="metrics-body" class="text-sm text-slate-500">Loading…</div></div>');
+      function load() {
+        $.ajax({ url: base, dataType: "json", global: false }).done(function (r) {
+          var ms = r.metrics || [];
+          if (!ms.length) { $("#metrics-body").html('<div class="text-slate-400">No metrics yet. Click Collect to gather them from CI + the codebase.</div>'); return; }
+          var rows = ms.map(function (m) {
+            return '<tr><td class="pr-4 py-0.5 font-mono">' + m.metric_key + '</td><td class="py-0.5">' +
+              m.value + (m.unit ? ' <span class="text-slate-400">' + m.unit + '</span>' : '') + "</td></tr>";
+          }).join("");
+          $("#metrics-body").html('<table class="w-full">' + rows + "</table>");
+        });
+      }
+      $("#metrics-collect").on("click", function () {
+        var $b = $(this).prop("disabled", true);
+        $.ajax({ url: base, method: "POST" }).always(function () {
+          $b.prop("disabled", false);
+          $("#metrics-body").text("Collecting… refresh in a moment.");
+        });
+      });
+      load();
+    } });
+
     tabs.push({ label: "AI Agent", render: function ($p) {
       if (window.PIAgent) { PIAgent.render($p); }
       else { $p.html('<div class="text-sm text-red-600">AI Agent unavailable.</div>'); }

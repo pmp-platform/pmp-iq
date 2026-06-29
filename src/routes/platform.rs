@@ -34,6 +34,10 @@ pub fn routes() -> Router<AppState> {
             "/api/platform/applications/:id/agent-tasks",
             get(list_agent_tasks).post(create_agent_task),
         )
+        .route(
+            "/api/platform/applications/:id/metrics",
+            get(get_metrics).post(collect_metrics),
+        )
         .route("/api/platform/applications/:id/agent-tasks/:task_id", get(get_agent_task))
         .route(
             "/api/platform/applications/:id/agent-tasks/:task_id/messages",
@@ -321,6 +325,32 @@ async fn record_user_message(state: &AppState, task_id: Uuid, message: &str) -> 
         })
         .await?;
     Ok(())
+}
+
+/// Latest quality metrics for an application (M31).
+async fn get_metrics(
+    State(state): State<AppState>,
+    Path(app_id): Path<Uuid>,
+) -> AppResult<Json<Value>> {
+    let metrics = state.metrics.latest_for_application(app_id).await?;
+    Ok(Json(json!({ "metrics": metrics })))
+}
+
+/// Enqueue an LLM metrics-collection run for an application's repository.
+async fn collect_metrics(
+    State(state): State<AppState>,
+    Path(app_id): Path<Uuid>,
+) -> AppResult<Json<Value>> {
+    state
+        .platform
+        .application_repository(app_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("application has no linked repository".into()))?;
+    let profile_id = default_profile(&state).await?;
+    let job_id = crate::metrics::ensure_job(state.jobs_repo.as_ref()).await?;
+    let params = json!({ "application_id": app_id, "ai_profile_id": profile_id });
+    let execution_id = state.runner.start_with_params(job_id, "metrics", params).await?;
+    Ok(Json(json!({ "execution_id": execution_id })))
 }
 
 /// All hints configured for an application.

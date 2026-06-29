@@ -15,6 +15,9 @@ use crate::analysis_config::repository::{
 use crate::appsettings::{PgSettingsRepository, SettingsRepository, SqliteSettingsRepository};
 use crate::db::Database;
 use crate::hints::{EntityHintRepository, PgEntityHintRepository, SqliteEntityHintRepository};
+use crate::metrics::repository::{
+    ApplicationMetricsRepository, PgApplicationMetricsRepository, SqliteApplicationMetricsRepository,
+};
 use crate::jobs::clock::{Clock, SystemClock};
 use crate::jobs::log_sink::{LogSink, PgLogSink, SqliteLogSink};
 use crate::config::RedisConfig;
@@ -87,6 +90,12 @@ engine_factory!(
     AgentTaskRepository,
     PgAgentTaskRepository,
     SqliteAgentTaskRepository
+);
+engine_factory!(
+    application_metrics,
+    ApplicationMetricsRepository,
+    PgApplicationMetricsRepository,
+    SqliteApplicationMetricsRepository
 );
 
 /// Build the distributed lock. When Redis is enabled it backs the lock (correct
