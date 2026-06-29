@@ -24,6 +24,9 @@ pub fn routes() -> Router<AppState> {
         .route("/platform/graph", get(graph_page))
         .route("/platform/dashboard", get(dashboard_page))
         .route("/platform/c4", get(c4_page))
+        .route("/platform/campaigns", get(campaigns_page))
+        .route("/api/platform/campaigns", get(list_campaigns).post(create_campaign))
+        .route("/api/platform/campaigns/:id", get(get_campaign))
         .route("/api/platform/graph", get(graph_api))
         .route("/api/platform/dashboard", get(dashboard_api))
         .route("/api/platform/c4", get(c4_api))
@@ -284,6 +287,114 @@ async fn create_multi_agent_task(
         executions.push(add_target_and_enqueue(&state, &task, repo, &message).await?);
     }
     Ok(Json(json!({ "task": task, "execution_ids": executions })))
+}
+
+/// Body to create a batch-change campaign (M30).
+#[derive(Deserialize)]
+struct CampaignPayload {
+    name: String,
+    instruction: String,
+    #[serde(default)]
+    application_ids: Option<Vec<Uuid>>,
+    /// Allowlisted equality filters over the applications table (e.g. app_type).
+    #[serde(default)]
+    filter: Option<BTreeMap<String, String>>,
+}
+
+/// Resolve a campaign's selection to a set of application ids (explicit list, or
+/// a platform-model filter over applications).
+async fn resolve_campaign_apps(state: &AppState, payload: &CampaignPayload) -> AppResult<Vec<Uuid>> {
+    if let Some(ids) = &payload.application_ids {
+        if !ids.is_empty() {
+            return Ok(ids.clone());
+        }
+    }
+    // A filter narrows the set; no filter means the whole fleet.
+    let filters = payload.filter.clone().unwrap_or_default();
+    let q = ListQuery::new(None, Some(1), Some(200), filters);
+    let page = state.platform.list("applications", &q).await?;
+    Ok(page
+        .items
+        .iter()
+        .filter_map(|a| a["id"].as_str().and_then(|s| Uuid::parse_str(s).ok()))
+        .collect())
+}
+
+/// Create a campaign: resolve its repository set, fan out a multi-repo agent task
+/// (one PR per repo), and record the campaign linked to that task.
+async fn create_campaign(
+    State(state): State<AppState>,
+    Json(payload): Json<CampaignPayload>,
+) -> AppResult<Json<Value>> {
+    let name = payload.name.trim().to_string();
+    let instruction = payload.instruction.trim().to_string();
+    if name.is_empty() || instruction.is_empty() {
+        return Err(AppError::BadRequest("name and instruction are required".into()));
+    }
+    let app_ids = resolve_campaign_apps(&state, &payload).await?;
+    // Resolve to repositories (deduped).
+    let mut repos: Vec<Uuid> = Vec::new();
+    let mut first_app = None;
+    for app_id in &app_ids {
+        if let Some(repo) = state.platform.application_repository(*app_id).await? {
+            if first_app.is_none() {
+                first_app = Some(*app_id);
+            }
+            if !repos.contains(&repo) {
+                repos.push(repo);
+            }
+        }
+    }
+    let (Some(app_id), Some(&first_repo)) = (first_app, repos.first()) else {
+        return Err(AppError::BadRequest("selection matched no repository-backed application".into()));
+    };
+    let task = state
+        .agent_tasks
+        .create(crate::agent_tasks::NewAgentTask {
+            application_id: app_id,
+            repository_id: first_repo,
+            title: name.clone(),
+        })
+        .await?;
+    record_user_message(&state, task.id, &instruction).await?;
+    let mut executions = Vec::new();
+    for repo in repos {
+        executions.push(add_target_and_enqueue(&state, &task, repo, &instruction).await?);
+    }
+    let selection = serde_json::to_string(&json!({
+        "application_ids": app_ids,
+        "filter": payload.filter,
+    }))
+    .unwrap_or_else(|_| "{}".into());
+    let campaign = state
+        .campaigns
+        .create(crate::campaigns::NewCampaign { name, instruction, selection, task_id: task.id })
+        .await?;
+    Ok(Json(json!({ "campaign": campaign, "execution_ids": executions })))
+}
+
+/// List all campaigns (newest first).
+async fn list_campaigns(State(state): State<AppState>) -> AppResult<Json<Value>> {
+    Ok(Json(json!({ "campaigns": state.campaigns.list().await? })))
+}
+
+/// A campaign with its per-repository progress (the backing task's targets).
+async fn get_campaign(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Value>> {
+    let campaign = state.campaigns.get(id).await?;
+    let targets = state.agent_tasks.list_targets(campaign.task_id).await?;
+    Ok(Json(json!({ "campaign": campaign, "targets": targets })))
+}
+
+/// The campaigns page (M30).
+async fn campaigns_page(
+    State(state): State<AppState>,
+    Extension(user): Extension<Principal>,
+) -> AppResult<Html<String>> {
+    let page = PageContext::new(Some(user.display_name), "platform");
+    render_page(&state.engine, "campaigns.html", &page, context! { active_tab => "campaigns" })
 }
 
 /// A task with its repository targets + full message transcript.

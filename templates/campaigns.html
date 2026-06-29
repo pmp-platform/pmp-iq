@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Campaigns · PlatIQ{% endblock %}
+{% block content %}
+{% include "_platform_tabs.html" %}
+<h1 class="text-2xl font-bold my-3">Batch-change campaigns</h1>
+
+<div class="bg-white rounded-lg shadow border border-slate-200 p-4 mb-4 space-y-2">
+  <div class="text-sm font-semibold">New campaign</div>
+  <input id="camp-name" class="w-full border border-slate-300 rounded px-2 py-1 text-sm"
+    placeholder="Campaign name (e.g. Bump library X to v2)" />
+  <textarea id="camp-instruction" rows="3" class="w-full border border-slate-300 rounded px-2 py-1 text-sm"
+    placeholder="Describe the change to apply across the selected repositories…"></textarea>
+  <input id="camp-filter" class="w-full border border-slate-300 rounded px-2 py-1 text-sm"
+    placeholder="Filter applications (optional), e.g. app_type=api — blank = all applications" />
+  <div class="flex items-center justify-between gap-2">
+    <span id="camp-error" class="text-xs text-red-600"></span>
+    <button id="camp-create" type="button"
+      class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200 disabled:opacity-50">Run campaign</button>
+  </div>
+</div>
+
+<div id="camp-list" class="space-y-2"></div>
+
+<script src="/assets/platform-campaigns.js?v={{ asset_version }}" defer></script>
+{% endblock %}

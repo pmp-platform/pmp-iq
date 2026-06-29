@@ -7,6 +7,9 @@ use crate::accounts::repository::{
 use crate::agent_tasks::repository::{
     AgentTaskRepository, PgAgentTaskRepository, SqliteAgentTaskRepository,
 };
+use crate::campaigns::repository::{
+    CampaignRepository, PgCampaignRepository, SqliteCampaignRepository,
+};
 use crate::ai::repository::{AiProfileRepository, PgAiProfileRepository, SqliteAiProfileRepository};
 use crate::analysis_config::repository::{
     EntityKindRepository, EntityPropertyRepository, PgEntityKindRepository,
@@ -97,6 +100,7 @@ engine_factory!(
     PgApplicationMetricsRepository,
     SqliteApplicationMetricsRepository
 );
+engine_factory!(campaigns, CampaignRepository, PgCampaignRepository, SqliteCampaignRepository);
 
 /// Build the distributed lock. When Redis is enabled it backs the lock (correct
 /// across instances through a shared Redis); otherwise the SQL-backed lock over

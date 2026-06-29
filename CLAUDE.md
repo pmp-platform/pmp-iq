@@ -94,6 +94,13 @@ as tables and a connection graph.
   `assets/platform-app-agent.js`. `GitClient` gains
   `create_branch`/`commit_all`/`push_branch`; `RepositoryProvider` gains
   `open_pull_request`/`get_pull_request` (GitHub impl, `Unsupported` default).
+- `src/campaigns/` — **batch-change campaigns** (M30): a named change applied
+  across many repositories. `model`/`repository` (dual-engine `campaigns`); a
+  campaign drives one multi-repo agent task (M23) — selection by explicit
+  `application_ids` or an allowlisted applications filter (blank = whole fleet),
+  resolved to repos and fanned out (one PR per repo). Routes `GET/POST
+  /api/platform/campaigns`, `GET /api/platform/campaigns/:id` (per-repo progress
+  from the task targets); page `/platform/campaigns` (Campaigns tab).
 - `src/c4.rs` — **C4 model** (M29): projects the platform graph (applications =
   systems; infra/services/external = external systems; edges = relationships)
   into `structurizr_dsl` + `mermaid_context` (C4 System-Context). Page

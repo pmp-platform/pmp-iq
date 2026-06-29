@@ -63,6 +63,7 @@ pub struct AppState {
     pub hints: Arc<dyn EntityHintRepository>,
     pub agent_tasks: Arc<dyn AgentTaskRepository>,
     pub metrics: Arc<dyn crate::metrics::ApplicationMetricsRepository>,
+    pub campaigns: Arc<dyn crate::campaigns::CampaignRepository>,
 }
 
 impl AppState {
@@ -115,6 +116,7 @@ impl AppState {
         let hints = store::entity_hints(&db);
         let agent_tasks = store::agent_tasks(&db);
         let app_metrics = store::application_metrics(&db);
+        let campaigns = store::campaigns(&db);
         let workspace = Workspace::new(Arc::new(RealFileSystem), config.workspace_dir.clone());
         let review_job = ReviewRepositoriesJob::new(ReviewDeps {
             accounts: accounts.clone(),
@@ -212,6 +214,7 @@ impl AppState {
             hints,
             agent_tasks,
             metrics: app_metrics,
+            campaigns,
         })
     }
 }

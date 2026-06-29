@@ -11,6 +11,7 @@ pub mod app;
 pub mod appsettings;
 pub mod auth;
 pub mod c4;
+pub mod campaigns;
 pub mod codebase_map;
 pub mod config;
 pub mod crypto;
