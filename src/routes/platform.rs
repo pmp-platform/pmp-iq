@@ -28,6 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/platform/applications/:id/sync", post(sync_application))
         .route("/api/platform/applications/:id/ask", get(ask_history).post(ask_application))
         .route("/api/platform/applications/:id/ask/:execution_id", get(ask_result))
+        .route("/api/platform/agent-tasks", post(create_multi_agent_task))
         .route(
             "/api/platform/applications/:id/agent-tasks",
             get(list_agent_tasks).post(create_agent_task),
@@ -119,18 +120,50 @@ struct MessagePayload {
     message: String,
 }
 
-/// Enqueue an `application-agent-task` turn for a task with the given message.
+/// Body for an app-agnostic multi-repository task.
+#[derive(Deserialize)]
+struct MultiTaskPayload {
+    title: String,
+    message: String,
+    application_ids: Vec<Uuid>,
+}
+
+/// Enqueue an `application-agent-task` turn for one repository target of a task.
 async fn enqueue_turn(
     state: &AppState,
-    task: &crate::agent_tasks::AgentTask,
+    task_id: Uuid,
+    target_id: Uuid,
     message: &str,
 ) -> AppResult<Uuid> {
     let profile_id = default_profile(state).await?;
     let job_id =
         crate::agent_tasks::ensure_job(state.jobs_repo.as_ref(), state.config.agent_max_concurrency)
             .await?;
-    let params = json!({ "task_id": task.id, "message": message, "ai_profile_id": profile_id });
+    let params = json!({
+        "task_id": task_id,
+        "target_id": target_id,
+        "message": message,
+        "ai_profile_id": profile_id,
+    });
     state.runner.start_with_params(job_id, "agent", params).await
+}
+
+/// Add a repository target to a task and enqueue its first turn.
+async fn add_target_and_enqueue(
+    state: &AppState,
+    task: &crate::agent_tasks::AgentTask,
+    repository_id: Uuid,
+    message: &str,
+) -> AppResult<Uuid> {
+    let target = state
+        .agent_tasks
+        .create_target(crate::agent_tasks::NewAgentTaskTarget {
+            task_id: task.id,
+            repository_id,
+            branch_name: task.branch_name.clone(),
+        })
+        .await?;
+    enqueue_turn(state, task.id, target.id, message).await
 }
 
 /// List the AI Agent tasks for an application (newest first).
@@ -142,7 +175,7 @@ async fn list_agent_tasks(
     Ok(Json(json!({ "tasks": tasks })))
 }
 
-/// Create a task (title + first instruction) and enqueue its first turn.
+/// Create a single-repository task and enqueue its first turn.
 async fn create_agent_task(
     State(state): State<AppState>,
     Path(app_id): Path<Uuid>,
@@ -167,21 +200,68 @@ async fn create_agent_task(
         })
         .await?;
     record_user_message(&state, task.id, &message).await?;
-    let execution_id = enqueue_turn(&state, &task, &message).await?;
+    let execution_id = add_target_and_enqueue(&state, &task, repository, &message).await?;
     Ok(Json(json!({ "task": task, "execution_id": execution_id })))
 }
 
-/// A task with its full message transcript.
+/// Create a multi-repository task across several applications (one PR per repo).
+async fn create_multi_agent_task(
+    State(state): State<AppState>,
+    Json(payload): Json<MultiTaskPayload>,
+) -> AppResult<Json<Value>> {
+    let title = payload.title.trim().to_string();
+    let message = payload.message.trim().to_string();
+    if title.is_empty() || message.is_empty() || payload.application_ids.is_empty() {
+        return Err(AppError::BadRequest(
+            "title, message and at least one application are required".into(),
+        ));
+    }
+    // Resolve each selected application to its repository (deduped).
+    let mut repos: Vec<Uuid> = Vec::new();
+    let mut first_app = None;
+    for app_id in &payload.application_ids {
+        if let Some(repo) = state.platform.application_repository(*app_id).await? {
+            if first_app.is_none() {
+                first_app = Some(*app_id);
+            }
+            if !repos.contains(&repo) {
+                repos.push(repo);
+            }
+        }
+    }
+    let (Some(app_id), Some(&first_repo)) = (first_app, repos.first()) else {
+        return Err(AppError::BadRequest(
+            "no selected application has a linked repository".into(),
+        ));
+    };
+    let task = state
+        .agent_tasks
+        .create(crate::agent_tasks::NewAgentTask {
+            application_id: app_id,
+            repository_id: first_repo,
+            title,
+        })
+        .await?;
+    record_user_message(&state, task.id, &message).await?;
+    let mut executions = Vec::new();
+    for repo in repos {
+        executions.push(add_target_and_enqueue(&state, &task, repo, &message).await?);
+    }
+    Ok(Json(json!({ "task": task, "execution_ids": executions })))
+}
+
+/// A task with its repository targets + full message transcript.
 async fn get_agent_task(
     State(state): State<AppState>,
     Path((_app_id, task_id)): Path<(Uuid, Uuid)>,
 ) -> AppResult<Json<Value>> {
     let task = state.agent_tasks.get(task_id).await?;
+    let targets = state.agent_tasks.list_targets(task_id).await?;
     let messages = state.agent_tasks.messages(task_id).await?;
-    Ok(Json(json!({ "task": task, "messages": messages })))
+    Ok(Json(json!({ "task": task, "targets": targets, "messages": messages })))
 }
 
-/// Append a follow-up instruction to a task and enqueue another turn.
+/// Append a follow-up instruction to a task and enqueue a turn per target.
 async fn post_agent_message(
     State(state): State<AppState>,
     Path((_app_id, task_id)): Path<(Uuid, Uuid)>,
@@ -193,8 +273,12 @@ async fn post_agent_message(
     }
     let task = state.agent_tasks.get(task_id).await?;
     record_user_message(&state, task.id, &message).await?;
-    let execution_id = enqueue_turn(&state, &task, &message).await?;
-    Ok(Json(json!({ "execution_id": execution_id })))
+    let targets = state.agent_tasks.list_targets(task_id).await?;
+    let mut executions = Vec::new();
+    for target in &targets {
+        executions.push(enqueue_turn(&state, task.id, target.id, &message).await?);
+    }
+    Ok(Json(json!({ "execution_ids": executions })))
 }
 
 /// Persist a user message on a task's transcript.

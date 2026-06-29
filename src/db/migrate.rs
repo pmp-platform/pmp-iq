@@ -32,6 +32,7 @@ pub const PG_MIGRATIONS: Migrations = &[
     ("017_entity_files", include_str!("../../db/migrations/20260101000017_entity_files.sql")),
     ("018_job_heartbeat", include_str!("../../db/migrations/20260101000018_job_heartbeat.sql")),
     ("019_agent_tasks", include_str!("../../db/migrations/20260101000019_agent_tasks.sql")),
+    ("020_agent_task_targets", include_str!("../../db/migrations/20260101000020_agent_task_targets.sql")),
 ];
 
 /// Embedded SQLite migrations (dbmate format).
@@ -55,6 +56,7 @@ pub const SQLITE_MIGRATIONS: Migrations = &[
     ("017_entity_files", include_str!("../../db/migrations_sqlite/20260101000017_entity_files.sql")),
     ("018_job_heartbeat", include_str!("../../db/migrations_sqlite/20260101000018_job_heartbeat.sql")),
     ("019_agent_tasks", include_str!("../../db/migrations_sqlite/20260101000019_agent_tasks.sql")),
+    ("020_agent_task_targets", include_str!("../../db/migrations_sqlite/20260101000020_agent_task_targets.sql")),
 ];
 
 /// Migrations matching the database's engine.

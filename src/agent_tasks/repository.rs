@@ -1,6 +1,8 @@
 //! Dual-engine persistence for AI Agent tasks and their messages.
 
-use super::model::{AgentTask, AgentTaskMessage, NewAgentTask, NewMessage};
+use super::model::{
+    AgentTask, AgentTaskMessage, AgentTaskTarget, NewAgentTask, NewAgentTaskTarget, NewMessage,
+};
 use crate::db::{RepoResult, identity, to_sqlite};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -18,6 +20,16 @@ pub trait AgentTaskRepository: Send + Sync {
     async fn messages(&self, task_id: Uuid) -> RepoResult<Vec<AgentTaskMessage>>;
     async fn update_status(&self, id: Uuid, status: &str, pr_url: Option<String>)
     -> RepoResult<()>;
+    // --- Multi-repo targets (M23) -------------------------------------------
+    async fn create_target(&self, input: NewAgentTaskTarget) -> RepoResult<AgentTaskTarget>;
+    async fn get_target(&self, id: Uuid) -> RepoResult<AgentTaskTarget>;
+    async fn list_targets(&self, task_id: Uuid) -> RepoResult<Vec<AgentTaskTarget>>;
+    async fn update_target_status(
+        &self,
+        id: Uuid,
+        status: &str,
+        pr_url: Option<String>,
+    ) -> RepoResult<()>;
 }
 
 #[derive(FromRow)]
@@ -72,9 +84,38 @@ impl From<MessageRow> for AgentTaskMessage {
     }
 }
 
+#[derive(FromRow)]
+struct TargetRow {
+    id: Uuid,
+    task_id: Uuid,
+    repository_id: Uuid,
+    branch_name: String,
+    status: String,
+    pr_url: Option<String>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl From<TargetRow> for AgentTaskTarget {
+    fn from(r: TargetRow) -> Self {
+        AgentTaskTarget {
+            id: r.id,
+            task_id: r.task_id,
+            repository_id: r.repository_id,
+            branch_name: r.branch_name,
+            status: r.status,
+            pr_url: r.pr_url,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }
+    }
+}
+
 const TASK_COLS: &str =
     "id, application_id, repository_id, title, status, branch_name, pr_url, created_at, updated_at";
 const MSG_COLS: &str = "id, task_id, role, content, execution_id, created_at";
+const TARGET_COLS: &str =
+    "id, task_id, repository_id, branch_name, status, pr_url, created_at, updated_at";
 
 macro_rules! agent_task_impl {
     ($name:ident, $pool:ty, $xform:path) => {
@@ -165,6 +206,63 @@ macro_rules! agent_task_impl {
             ) -> RepoResult<()> {
                 sqlx::query(&$xform(
                     "UPDATE agent_tasks SET status=$2, pr_url=COALESCE($3, pr_url), \
+                     updated_at=CURRENT_TIMESTAMP WHERE id=$1",
+                ))
+                .bind(id)
+                .bind(status)
+                .bind(pr_url)
+                .execute(&self.pool)
+                .await?;
+                Ok(())
+            }
+
+            async fn create_target(
+                &self,
+                input: NewAgentTaskTarget,
+            ) -> RepoResult<AgentTaskTarget> {
+                let id = Uuid::new_v4();
+                let row: TargetRow = sqlx::query_as(&$xform(&format!(
+                    "INSERT INTO agent_task_targets (id, task_id, repository_id, branch_name) \
+                     VALUES ($1,$2,$3,$4) RETURNING {TARGET_COLS}"
+                )))
+                .bind(id)
+                .bind(input.task_id)
+                .bind(input.repository_id)
+                .bind(&input.branch_name)
+                .fetch_one(&self.pool)
+                .await?;
+                Ok(row.into())
+            }
+
+            async fn get_target(&self, id: Uuid) -> RepoResult<AgentTaskTarget> {
+                let row: TargetRow = sqlx::query_as(&$xform(&format!(
+                    "SELECT {TARGET_COLS} FROM agent_task_targets WHERE id=$1"
+                )))
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await?;
+                Ok(row.into())
+            }
+
+            async fn list_targets(&self, task_id: Uuid) -> RepoResult<Vec<AgentTaskTarget>> {
+                let rows: Vec<TargetRow> = sqlx::query_as(&$xform(&format!(
+                    "SELECT {TARGET_COLS} FROM agent_task_targets WHERE task_id=$1 \
+                     ORDER BY created_at"
+                )))
+                .bind(task_id)
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(rows.into_iter().map(AgentTaskTarget::from).collect())
+            }
+
+            async fn update_target_status(
+                &self,
+                id: Uuid,
+                status: &str,
+                pr_url: Option<String>,
+            ) -> RepoResult<()> {
+                sqlx::query(&$xform(
+                    "UPDATE agent_task_targets SET status=$2, pr_url=COALESCE($3, pr_url), \
                      updated_at=CURRENT_TIMESTAMP WHERE id=$1",
                 ))
                 .bind(id)

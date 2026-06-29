@@ -1,7 +1,7 @@
 //! The `application-agent-task` job type: runs one agentic turn over an
 //! application's repository — branch, edit, commit, push, open/update a PR.
 
-use super::model::{AgentTask, AgentTaskMessage, NewMessage, role, status};
+use super::model::{AgentTask, AgentTaskMessage, AgentTaskTarget, NewMessage, role, status};
 use super::repository::AgentTaskRepository;
 use crate::accounts::{AccountService, PullRequestSpec, RepositoryAccount};
 use crate::ai::{AiProfileService, AiProvider, AiProviderDeps, AiProviderFactory, AiRequest};
@@ -42,6 +42,8 @@ pub struct AgentTaskDeps {
 #[derive(Deserialize)]
 struct TurnInput {
     task_id: Uuid,
+    /// The repository target this turn operates on (M23). Required.
+    target_id: Uuid,
     /// The user's instruction (already persisted as a message by the route).
     #[allow(dead_code)]
     message: String,
@@ -58,6 +60,7 @@ struct CheckoutPlan {
 /// Resolved state shared across a turn's publish steps.
 struct TurnState<'a> {
     task: &'a AgentTask,
+    target: &'a AgentTaskTarget,
     record: &'a RepoRecord,
     account: RepositoryAccount,
     token: Option<String>,
@@ -210,7 +213,7 @@ impl AgentTaskJob {
             .git
             .push_branch(PushRequest {
                 checkout: state.checkout.clone(),
-                branch: state.task.branch_name.clone(),
+                branch: state.target.branch_name.clone(),
                 token: state.token.clone(),
             })
             .await
@@ -231,7 +234,7 @@ impl AgentTaskJob {
                 &state.account,
                 PullRequestSpec {
                     repo_full_name: state.record.full_name.clone(),
-                    head_branch: state.task.branch_name.clone(),
+                    head_branch: state.target.branch_name.clone(),
                     base_branch: state.base.clone(),
                     title: state.task.title.clone(),
                     body: pr_body(summary),
@@ -242,15 +245,20 @@ impl AgentTaskJob {
         let _ = self
             .deps
             .tasks
+            .update_target_status(state.target.id, status::PR_OPEN, Some(pr.url.clone()))
+            .await;
+        let _ = self
+            .deps
+            .tasks
             .update_status(state.task.id, status::PR_OPEN, Some(pr.url.clone()))
             .await;
-        self.add_agent_message(ctx, state.task.id, &format!("{summary}\n\nOpened PR: {}", pr.url))
-            .await;
+        let line = format!("**{}** → {}\n\n{summary}", state.record.full_name, pr.url);
+        self.add_agent_message(ctx, state.task.id, &line).await;
         ctx.merge_metadata(&json!({ "pr_url": pr.url, "pr_number": pr.number })).await;
         Ok(JobOutcome::completed(json!({
             "status": status::PR_OPEN,
             "pr_url": pr.url,
-            "branch": state.task.branch_name,
+            "branch": state.target.branch_name,
         })))
     }
 
@@ -268,28 +276,49 @@ impl AgentTaskJob {
         let _ = self
             .deps
             .tasks
+            .update_target_status(state.target.id, status::AWAITING_INPUT, None)
+            .await;
+        let _ = self
+            .deps
+            .tasks
             .update_status(state.task.id, status::AWAITING_INPUT, None)
             .await;
         Ok(JobOutcome::completed(json!({ "status": status::AWAITING_INPUT, "changes": false })))
     }
 
-    /// Resolve the checkout, run the agent, and publish the result.
+    /// Resolve the checkout, run the agent, and publish the result for one
+    /// repository target.
     async fn run_turn(
         &self,
         ctx: &JobContext,
         task: &AgentTask,
-        record: &RepoRecord,
+        target: &AgentTaskTarget,
         input: &TurnInput,
     ) -> Result<JobOutcome, JobError> {
+        let record = self
+            .deps
+            .repositories
+            .get(target.repository_id)
+            .await
+            .map_err(|e| JobError::Failed(e.to_string()))?;
+        let _ = self.deps.tasks.update_target_status(target.id, status::RUNNING, None).await;
         let _ = self.deps.tasks.update_status(task.id, status::RUNNING, None).await;
-        let (account, token) = self.resolve_account(record).await?;
+        let (account, token) = self.resolve_account(&record).await?;
         let plan = CheckoutPlan {
-            base: Self::base_branch(record),
-            branch: task.branch_name.clone(),
+            base: Self::base_branch(&record),
+            branch: target.branch_name.clone(),
             token: token.clone(),
         };
-        let checkout = self.prepare_checkout(ctx, record, &plan).await?;
-        let state = TurnState { task, record, account, token, base: plan.base, checkout };
+        let checkout = self.prepare_checkout(ctx, &record, &plan).await?;
+        let state = TurnState {
+            task,
+            target,
+            record: &record,
+            account,
+            token,
+            base: plan.base,
+            checkout,
+        };
         let summary = self.run_agent(ctx, &state, input.ai_profile_id).await?;
         self.publish(ctx, &state, &summary).await
     }
@@ -314,13 +343,20 @@ impl JobType for AgentTaskJob {
             .get(input.task_id)
             .await
             .map_err(|e| JobError::Failed(e.to_string()))?;
+        let target = self
+            .deps
+            .tasks
+            .get_target(input.target_id)
+            .await
+            .map_err(|e| JobError::Failed(e.to_string()))?;
         let record = self
             .deps
             .repositories
-            .get(task.repository_id)
+            .get(target.repository_id)
             .await
             .map_err(|e| JobError::Failed(e.to_string()))?;
 
+        // Serialise per repository: a concurrent turn on the same repo reschedules.
         let key = lock_keys::repository(&record.full_name);
         let lease = match self.deps.lock.acquire(&key, LOCK_TTL).await {
             Ok(Some(lease)) => lease,
@@ -330,9 +366,10 @@ impl JobType for AgentTaskJob {
             }
             Err(e) => return Err(JobError::Failed(format!("repository lock error: {e}"))),
         };
-        let outcome = self.run_turn(&ctx, &task, &record, &input).await;
+        let outcome = self.run_turn(&ctx, &task, &target, &input).await;
         let _ = self.deps.lock.release(&lease).await;
         if matches!(outcome, Err(JobError::Failed(_))) {
+            let _ = self.deps.tasks.update_target_status(target.id, status::FAILED, None).await;
             let _ = self.deps.tasks.update_status(task.id, status::FAILED, None).await;
         }
         outcome
@@ -515,12 +552,26 @@ mod tests {
         assert!(pr_body("changed x").contains("PlatIQ AI Agent"));
     }
 
+    fn target() -> AgentTaskTarget {
+        AgentTaskTarget {
+            id: Uuid::new_v4(),
+            task_id: Uuid::new_v4(),
+            repository_id: Uuid::new_v4(),
+            branch_name: "agent/abc".into(),
+            status: status::PENDING.into(),
+            pr_url: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
     #[tokio::test]
     async fn busy_repository_reschedules_without_failing() {
         let mut tasks = MockAgentTaskRepository::new();
         let fixture = task();
         let task_id = fixture.id;
         tasks.expect_get().returning(move |_| Ok(fixture.clone()));
+        tasks.expect_get_target().returning(|_| Ok(target()));
         let mut repos = MockRepoRecordRepository::new();
         repos.expect_get().returning(|_| Ok(record()));
         let mut lock = MockDistributedLock::new();
@@ -533,6 +584,7 @@ mod tests {
             log: Arc::new(log),
             ..ctx_with(json!({
                 "task_id": task_id,
+                "target_id": Uuid::new_v4(),
                 "message": "add a feature",
                 "ai_profile_id": Uuid::new_v4(),
             }))
@@ -545,6 +597,8 @@ mod tests {
     fn recording_tasks(statuses: std::sync::Arc<std::sync::Mutex<Vec<String>>>) -> MockAgentTaskRepository {
         let mut tasks = MockAgentTaskRepository::new();
         tasks.expect_get().returning(|_| Ok(task()));
+        tasks.expect_get_target().returning(|_| Ok(target()));
+        tasks.expect_update_target_status().returning(|_, _, _| Ok(()));
         tasks
             .expect_messages()
             .returning(|_| Ok(vec![message("user", "add a health endpoint")]));
@@ -688,6 +742,7 @@ mod tests {
             executions: Arc::new(execs),
             ..ctx_with(json!({
                 "task_id": task_id,
+                "target_id": Uuid::new_v4(),
                 "message": "add a health endpoint",
                 "ai_profile_id": Uuid::new_v4(),
             }))

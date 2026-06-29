@@ -7,5 +7,7 @@ pub mod model;
 pub mod repository;
 
 pub use job::{AgentTaskDeps, AgentTaskJob, JOB_TYPE, ensure_job};
-pub use model::{AgentTask, AgentTaskMessage, NewAgentTask, NewMessage};
+pub use model::{
+    AgentTask, AgentTaskMessage, AgentTaskTarget, NewAgentTask, NewAgentTaskTarget, NewMessage,
+};
 pub use repository::{AgentTaskRepository, PgAgentTaskRepository, SqliteAgentTaskRepository};

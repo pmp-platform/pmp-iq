@@ -80,13 +80,18 @@ as tables and a connection graph.
   (keyed by `application_id`+`entity_type`+natural `entity_key`; survive re-sync),
   `render_hints` (prompt block injected into analysis as authoritative corrections).
 - `src/agent_tasks/` — application **AI Agent** change tasks (job type
-  `application-agent-task`): `model` (`AgentTask`/`AgentTaskMessage` + statuses),
-  dual-engine `AgentTaskRepository` (tasks + transcript), `job` (`AgentTaskJob` —
-  per-repo-locked turn: sync default branch → create `agent/<id>` branch → run the
-  agentic Claude CLI over the checkout → `commit_all` → `push_branch` → open/update
-  a PR via `AccountService::open_pull_request`; no-change runs go `awaiting_input`).
-  Routes under `/api/platform/applications/:id/agent-tasks` in `routes/platform.rs`;
-  UI tab `assets/platform-app-agent.js`. `GitClient` gains
+  `application-agent-task`): `model` (`AgentTask`/`AgentTaskMessage`/
+  `AgentTaskTarget` + statuses), dual-engine `AgentTaskRepository` (tasks +
+  transcript + per-repo **targets**), `job` (`AgentTaskJob` — per-target,
+  per-repo-locked turn: sync default branch → `agent/<id>` branch → agentic Claude
+  CLI over the checkout → `commit_all` → `push_branch` → open/update a PR via
+  `AccountService::open_pull_request`; updates target+task status; no-change →
+  `awaiting_input`). **Multi-repo (M23)**: a task has many `agent_task_targets`
+  (one branch/PR/status each); turns fan out one job execution per target (params
+  carry `target_id`). Routes: single `POST /api/platform/applications/:id/
+  agent-tasks`, app-agnostic multi `POST /api/platform/agent-tasks`
+  (`application_ids`), follow-up messages enqueue a turn per target. UI tab
+  `assets/platform-app-agent.js`. `GitClient` gains
   `create_branch`/`commit_all`/`push_branch`; `RepositoryProvider` gains
   `open_pull_request`/`get_pull_request` (GitHub impl, `Unsupported` default).
 - `src/llm_request/` — `LlmRepositoryRequestJob` (job type `llm-repository-request`):

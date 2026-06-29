@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 /// Task lifecycle status, stored as a lowercase string.
 pub mod status {
+    pub const PENDING: &str = "pending";
     pub const RUNNING: &str = "running";
     pub const AWAITING_INPUT: &str = "awaiting_input";
     pub const PR_OPEN: &str = "pr_open";
@@ -49,6 +50,27 @@ pub struct NewAgentTask {
     pub application_id: Uuid,
     pub repository_id: Uuid,
     pub title: String,
+}
+
+/// One repository a task targets, with its own branch / PR / status.
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentTaskTarget {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub repository_id: Uuid,
+    pub branch_name: String,
+    pub status: String,
+    pub pr_url: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Fields to add a target to a task (the branch name is derived from the task).
+#[derive(Debug, Clone)]
+pub struct NewAgentTaskTarget {
+    pub task_id: Uuid,
+    pub repository_id: Uuid,
+    pub branch_name: String,
 }
 
 /// Fields to append a message to a task.

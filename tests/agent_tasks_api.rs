@@ -153,6 +153,15 @@ async fn post_message_enqueues_a_turn() {
         })
         .await
         .unwrap();
+    // Give the task one repository target so the message route enqueues a turn.
+    store::agent_tasks(&db)
+        .create_target(platiq::agent_tasks::NewAgentTaskTarget {
+            task_id: task.id,
+            repository_id: Uuid::new_v4(),
+            branch_name: task.branch_name.clone(),
+        })
+        .await
+        .unwrap();
 
     let app = build_router(build_state_sqlite(&sqlite));
     let cookies = login_cookies(&app, "admin", "admin").await;
@@ -173,7 +182,7 @@ async fn post_message_enqueues_a_turn() {
     )
     .await;
     assert_eq!(status, 200, "follow-up should succeed: {body}");
-    assert!(body.get("execution_id").is_some());
+    assert_eq!(body["execution_ids"].as_array().unwrap().len(), 1);
 
     // The follow-up message is now on the transcript.
     let (_, body) = json_body(
@@ -218,6 +227,49 @@ async fn create_rejects_empty_fields() {
     )
     .await;
     assert_eq!(status, 400);
+}
+
+#[tokio::test]
+async fn create_multi_repo_task_creates_a_target() {
+    let sqlite = SqliteDb::start().await;
+    let app_id = seed_app(&sqlite.database()).await;
+    let app = build_router(build_state_sqlite(&sqlite));
+    let cookies = login_cookies(&app, "admin", "admin").await;
+
+    let body = format!(
+        r#"{{"title":"Cross-cutting change","message":"bump the dependency","application_ids":["{app_id}"]}}"#
+    );
+    let (status, resp) = json_body(
+        app.clone()
+            .oneshot(
+                Request::post("/api/platform/agent-tasks")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(COOKIE, cookie_header(&cookies))
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, 200, "multi create should succeed: {resp}");
+    assert_eq!(resp["execution_ids"].as_array().unwrap().len(), 1);
+    let task_id = resp["task"]["id"].as_str().unwrap().to_string();
+
+    // The task detail exposes one repository target.
+    let (_, detail) = json_body(
+        app.clone()
+            .oneshot(
+                Request::get(format!("/api/platform/applications/{app_id}/agent-tasks/{task_id}"))
+                    .header(COOKIE, cookie_header(&cookies))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(detail["targets"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]

@@ -1,7 +1,7 @@
 //! Smoke test for the agent-task repository against a real (in-memory) SQLite,
 //! exercising the 019 migration plus UUID(BLOB)/timestamp(TEXT) decoding.
 
-use platiq::agent_tasks::model::{NewAgentTask, NewMessage};
+use platiq::agent_tasks::model::{NewAgentTask, NewAgentTaskTarget, NewMessage};
 use platiq::agent_tasks::repository::{AgentTaskRepository, SqliteAgentTaskRepository};
 use platiq::db::{Database, migrate};
 use sqlx::sqlite::SqlitePoolOptions;
@@ -101,4 +101,35 @@ async fn update_status_sets_status_and_pr_url() {
     let again = repo.get(task.id).await.unwrap();
     assert_eq!(again.status, "failed");
     assert_eq!(again.pr_url.as_deref(), Some("https://example/pr/1"));
+}
+
+#[tokio::test]
+async fn target_crud_roundtrip() {
+    let (repo, app_id) = repo().await;
+    let task = repo
+        .create(NewAgentTask {
+            application_id: app_id,
+            repository_id: Uuid::new_v4(),
+            title: "multi".into(),
+        })
+        .await
+        .unwrap();
+
+    let t = repo
+        .create_target(NewAgentTaskTarget {
+            task_id: task.id,
+            repository_id: Uuid::new_v4(),
+            branch_name: task.branch_name.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(t.status, "pending");
+    assert_eq!(repo.list_targets(task.id).await.unwrap().len(), 1);
+
+    repo.update_target_status(t.id, "pr_open", Some("https://example/pr/2".into()))
+        .await
+        .unwrap();
+    let got = repo.get_target(t.id).await.unwrap();
+    assert_eq!(got.status, "pr_open");
+    assert_eq!(got.pr_url.as_deref(), Some("https://example/pr/2"));
 }

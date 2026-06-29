@@ -75,10 +75,26 @@
     });
   }
 
+  function renderTargets($into, targets) {
+    if (!targets || targets.length <= 1) return; // single-repo: nothing extra to show
+    var $box = $('<div class="mb-2 text-xs border border-slate-200 rounded p-2"></div>');
+    $box.append('<div class="font-semibold text-slate-500 mb-1">Repositories (' + targets.length + ')</div>');
+    targets.forEach(function (t) {
+      var $row = $('<div class="flex items-center justify-between gap-2 py-0.5"></div>');
+      $row.append($('<span class="font-mono"></span>').text(t.branch_name));
+      var right = badge(t.status) + (t.pr_url ? ' <a class="text-blue-600 hover:underline" target="_blank" href="' +
+        esc(t.pr_url) + '">PR</a>' : "");
+      $row.append($('<span></span>').html(right));
+      $box.append($row);
+    });
+    $into.append($box);
+  }
+
   function renderTranscript($into, data) {
     var task = data.task || {};
     var messages = data.messages || [];
     $into.empty();
+    renderTargets($into, data.targets);
     messages.forEach(function (m) {
       var mine = m.role === "user";
       var $row = $('<div class="mb-2"></div>');
