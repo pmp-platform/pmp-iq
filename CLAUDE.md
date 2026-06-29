@@ -94,6 +94,10 @@ as tables and a connection graph.
   `assets/platform-app-agent.js`. `GitClient` gains
   `create_branch`/`commit_all`/`push_branch`; `RepositoryProvider` gains
   `open_pull_request`/`get_pull_request` (GitHub impl, `Unsupported` default).
+- `src/nl_query.rs` — **Ask the platform** (M26): `CatalogQuery` answers a
+  natural-language question grounded in a serialised `GraphQuery` snapshot of the
+  catalog (system prompt forbids inventing data). Route `POST /api/platform/ask`;
+  global ask box on the graph page (`assets/platform-ask.js`).
 - `src/pr_watcher.rs` — **PR watcher** (job type `pr-watcher`, cron `* * * * *`):
   polls `list_open_pr_targets`; finishes merged/closed PRs, and on new review
   comments / merge conflicts / failed checks posts a marker comment (`🤖 PlatIQ:`,

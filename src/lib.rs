@@ -22,6 +22,7 @@ pub mod httpclient;
 pub mod jobs;
 pub mod llm_request;
 pub mod locks;
+pub mod nl_query;
 pub mod platform;
 pub mod pr_watcher;
 pub mod process;

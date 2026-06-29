@@ -28,6 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/platform/applications/:id/sync", post(sync_application))
         .route("/api/platform/applications/:id/ask", get(ask_history).post(ask_application))
         .route("/api/platform/applications/:id/ask/:execution_id", get(ask_result))
+        .route("/api/platform/ask", post(ask_platform))
         .route("/api/platform/agent-tasks", post(create_multi_agent_task))
         .route(
             "/api/platform/applications/:id/agent-tasks",
@@ -53,6 +54,28 @@ pub fn routes() -> Router<AppState> {
 #[derive(Deserialize)]
 struct AskPayload {
     question: String,
+}
+
+/// A natural-language question over the whole catalog (M26).
+#[derive(Deserialize)]
+struct AskPlatformPayload {
+    question: String,
+}
+
+/// Answer a natural-language question grounded in the whole platform catalog.
+async fn ask_platform(
+    State(state): State<AppState>,
+    Json(payload): Json<AskPlatformPayload>,
+) -> AppResult<Json<Value>> {
+    let question = payload.question.trim();
+    if question.is_empty() {
+        return Err(AppError::BadRequest("question is required".into()));
+    }
+    let cq = crate::nl_query::CatalogQuery::new(crate::nl_query::CatalogQueryDeps {
+        graph: state.graph.clone(),
+        ai: state.ai.clone(),
+    });
+    Ok(Json(cq.answer(question).await?))
 }
 
 /// Schedule a `sync-repositories` run scoped to this application's repository.
