@@ -18,10 +18,14 @@ pub mod jobs;
 pub mod pages;
 pub mod platform;
 pub mod settings;
+pub mod webhooks;
 
 /// Routes reachable without authentication.
 fn public_routes() -> Router<AppState> {
-    Router::new().merge(health::routes()).merge(auth::routes())
+    Router::new()
+        .merge(health::routes())
+        .merge(auth::routes())
+        .merge(webhooks::routes())
 }
 
 /// Routes that require an authenticated session.

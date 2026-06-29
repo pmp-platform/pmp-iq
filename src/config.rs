@@ -199,6 +199,9 @@ pub struct Config {
     /// Max concurrent executions of the AI-Agent job (parallel turns). Per-repo
     /// locks still serialise same-repo work. Default 4.
     pub agent_max_concurrency: u32,
+    /// Shared secret for verifying GitHub webhook signatures (M25). When unset,
+    /// webhook signature verification is skipped (development only).
+    pub webhook_github_secret: Option<String>,
     /// Minimum interval (ms) between outbound git-provider API calls (throttle).
     pub git_min_interval_ms: u64,
     /// Cache-busting version appended to asset URLs (`?v=`). Taken from
@@ -400,6 +403,11 @@ impl Config {
                 file.agent.max_concurrency,
                 4,
             )?,
+            webhook_github_secret: resolve_opt(
+                env,
+                "WEBHOOK_GITHUB_SECRET",
+                file.webhooks.github_secret.as_deref(),
+            ),
             git_min_interval_ms: resolve_u64(
                 env,
                 "GIT_API_MIN_INTERVAL_MS",
@@ -426,6 +434,7 @@ struct FileConfig {
     auth: FileAuth,
     log: FileLog,
     agent: FileAgent,
+    webhooks: FileWebhooks,
     workspace_dir: Option<String>,
     git_min_interval_ms: Option<u64>,
     app_version: Option<String>,
@@ -435,6 +444,12 @@ struct FileConfig {
 #[serde(default)]
 struct FileAgent {
     max_concurrency: Option<u32>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileWebhooks {
+    github_secret: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

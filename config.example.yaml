@@ -43,5 +43,10 @@ agent:
   # same-repo work). Default 4.
   max_concurrency: 4
 
+webhooks:
+  # Shared secret for verifying GitHub webhook signatures (X-Hub-Signature-256).
+  # When unset, signature verification is skipped (development only).
+  github_secret: "${WEBHOOK_GITHUB_SECRET}"
+
 workspace_dir: tmp/workspace
 git_min_interval_ms: 250

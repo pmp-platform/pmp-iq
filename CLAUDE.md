@@ -189,7 +189,10 @@ as tables and a connection graph.
   `members_for`).
 - `src/routes/` — axum routers, merged in `routes::router` (public vs
   `require_auth`-gated). Sessions via tower-sessions `MemoryStore`. `AppState`
-  is built via `AppState::build` (validates `ENCRYPTION_KEY`).
+  is built via `AppState::build` (validates `ENCRYPTION_KEY`). `routes/webhooks.rs`
+  (M25, public, HMAC-verified `POST /webhooks/github`): PR events trigger an
+  immediate `pr-watcher` reconcile; a default-branch push enqueues a scoped
+  `sync-repositories` run. Secret from `webhooks.github_secret` config.
 - `src/app.rs` — `AppState` + `build_router`.
 - `db/migrations/` — dbmate migrations (up-only; `--no-dump-schema`).
 - `tests/common/mod.rs` — `TestDb::start()` boots a Postgres testcontainer and

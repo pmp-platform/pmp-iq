@@ -42,6 +42,9 @@ time = "0.3"
 serde_yaml = "0.9"
 clap = { version = "4", features = ["derive"] }
 redis = { version = "0.27", features = ["tokio-comp"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 mockall = "0.13"
