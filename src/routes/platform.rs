@@ -51,6 +51,7 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/api/platform/applications/:id/files", get(browse_files))
         .route("/api/platform/applications/:id/files/content", get(file_content))
+        .route("/api/platform/applications/:id/codebase-map", get(codebase_map_api))
         .route("/api/platform/:entity", get(list_api))
         .route("/api/platform/:entity/facets", get(facets_api))
         .route("/api/platform/:entity/:id", get(detail_api))
@@ -327,6 +328,16 @@ async fn record_user_message(state: &AppState, task_id: Uuid, message: &str) -> 
         })
         .await?;
     Ok(())
+}
+
+/// The codebase map (directory/module structure graph) for an application (M28).
+async fn codebase_map_api(
+    State(state): State<AppState>,
+    Path(app_id): Path<Uuid>,
+) -> AppResult<Json<Value>> {
+    let root = checkout_root(&state, app_id).await?;
+    let browser = FileBrowser::new(state.deps.fs.clone());
+    Ok(Json(crate::codebase_map::build_map(&browser, &root)))
 }
 
 /// Latest quality metrics for an application (M31).

@@ -94,6 +94,11 @@ as tables and a connection graph.
   `assets/platform-app-agent.js`. `GitClient` gains
   `create_branch`/`commit_all`/`push_branch`; `RepositoryProvider` gains
   `open_pull_request`/`get_pull_request` (GitHub impl, `Unsupported` default).
+- `src/codebase_map.rs` — **codebase map** (M28): `build_map` derives a
+  bounded directory/module structure graph (nodes = directories, edges =
+  containment; depth/node caps with `truncated`) from a cloned checkout via the
+  sandboxed `FileBrowser`. Route `GET /api/platform/applications/:id/codebase-map`;
+  "Codebase Map" G6 tab on app detail. (Import-dependency edges are future work.)
 - `src/dashboard.rs` — **insights dashboard** (M32): pure `build(apps, metrics)`
   aggregates latest metrics + the application list into rollups, leaderboards
   (top/needs coverage, lowest/highest complexity), and group-by (coverage by

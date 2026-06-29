@@ -495,6 +495,35 @@
       filterKeys: ["association_type", "principal_type"],
     }) });
 
+    tabs.push({ label: "Codebase Map", render: function ($p) {
+      $p.html('<div class="bg-white rounded-lg shadow border border-slate-200 p-2">' +
+        '<div class="flex items-center justify-end gap-1 mb-1" id="cm-ctrls"></div>' +
+        '<div id="cm-graph" style="height:520px"></div>' +
+        '<div id="cm-note" class="text-xs text-amber-600 mt-1"></div></div>');
+      $.ajax({ url: "/api/platform/applications/" + d.id + "/codebase-map", dataType: "json", global: false })
+        .done(function (data) {
+          if (typeof G6 === "undefined") { $("#cm-graph").html('<div class="text-sm text-slate-400 p-3">Graph library unavailable.</div>'); return; }
+          if (data.truncated) $("#cm-note").text("Map truncated for a large repository.");
+          var edges = (data.edges || []).map(function (e, i) { return { id: "cm" + i, source: e.source, target: e.target }; });
+          var graph = new G6.Graph({
+            container: document.getElementById("cm-graph"), autoResize: true, autoFit: "view",
+            data: { nodes: data.nodes || [], edges: edges },
+            layout: { type: "d3-force", link: { distance: 80 }, manyBody: { strength: -200 }, collide: { radius: 20 } },
+            node: { style: { size: 12, fill: "#64748b", stroke: "#ffffff", lineWidth: 1,
+              labelText: function (n) { return n.data.label; }, labelPlacement: "bottom", labelFontSize: 8, labelFill: "#0f172a" } },
+            edge: { style: { stroke: "#cbd5e1", endArrow: true } },
+            behaviors: ["drag-canvas", "drag-element"],
+          });
+          graph.render();
+          attachG6Controls($("#cm-ctrls"), graph);
+        })
+        .fail(function (xhr) {
+          var err = xhr.responseJSON && xhr.responseJSON.error;
+          $("#cm-graph").html('<div class="text-sm text-slate-400 p-3">' +
+            ((err && err.message) || "Codebase map unavailable — the repository may not be cloned yet.") + "</div>");
+        });
+    } });
+
     tabs.push({ label: "File Explorer", render: function ($p) {
       if (window.PIFiles) { PIFiles.mount($p); }
       else { $p.html('<div class="text-sm text-red-600">File explorer unavailable.</div>'); }
