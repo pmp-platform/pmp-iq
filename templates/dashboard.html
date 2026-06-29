@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Insights · PlatIQ{% endblock %}
+{% block content %}
+{% include "_platform_tabs.html" %}
+<h1 class="text-2xl font-bold my-3">Platform insights</h1>
+
+<div id="dash-rollup" class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4"></div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-4">
+    <div class="font-semibold mb-2 text-sm">Top coverage</div><div id="dash-top-coverage"></div></div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-4">
+    <div class="font-semibold mb-2 text-sm">Needs attention (lowest coverage)</div><div id="dash-needs-coverage"></div></div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-4">
+    <div class="font-semibold mb-2 text-sm">Lowest average complexity</div><div id="dash-lowest-complexity"></div></div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-4">
+    <div class="font-semibold mb-2 text-sm">Coverage by language</div><div id="dash-by-language"></div></div>
+</div>
+
+<script src="/assets/platform-dashboard.js?v={{ asset_version }}" defer></script>
+{% endblock %}

@@ -22,7 +22,9 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/platform", get(overview_page))
         .route("/platform/graph", get(graph_page))
+        .route("/platform/dashboard", get(dashboard_page))
         .route("/api/platform/graph", get(graph_api))
+        .route("/api/platform/dashboard", get(dashboard_api))
         .route("/platform/:entity", get(list_page))
         .route("/platform/:entity/:id", get(detail_page))
         .route("/api/platform/applications/:id/sync", post(sync_application))
@@ -566,6 +568,23 @@ async fn graph_api(
     let scope = GraphScope::new(params.center, params.limit);
     let graph = state.graph.build(&scope).await?;
     Ok(Json(graph))
+}
+
+/// The platform metrics & insights dashboard page (M32).
+async fn dashboard_page(
+    State(state): State<AppState>,
+    Extension(user): Extension<Principal>,
+) -> AppResult<Html<String>> {
+    let page = PageContext::new(Some(user.display_name), "platform");
+    render_page(&state.engine, "dashboard.html", &page, context! { active_tab => "dashboard" })
+}
+
+/// Aggregated dashboard data: rollups, group-by breakdowns, and leaderboards.
+async fn dashboard_api(State(state): State<AppState>) -> AppResult<Json<Value>> {
+    let q = ListQuery::new(None, Some(1), Some(200), BTreeMap::new());
+    let apps = state.platform.list("applications", &q).await?;
+    let metrics = state.metrics.latest_all().await?;
+    Ok(Json(crate::dashboard::build(&apps.items, &metrics)))
 }
 
 async fn list_page(

@@ -94,6 +94,11 @@ as tables and a connection graph.
   `assets/platform-app-agent.js`. `GitClient` gains
   `create_branch`/`commit_all`/`push_branch`; `RepositoryProvider` gains
   `open_pull_request`/`get_pull_request` (GitHub impl, `Unsupported` default).
+- `src/dashboard.rs` — **insights dashboard** (M32): pure `build(apps, metrics)`
+  aggregates latest metrics + the application list into rollups, leaderboards
+  (top/needs coverage, lowest/highest complexity), and group-by (coverage by
+  type/language). Page `/platform/dashboard` (Insights tab) + `GET
+  /api/platform/dashboard`; `assets/platform-dashboard.js`.
 - `src/metrics/` — **quality metrics** (M31): `model` (`Metric`/`ApplicationMetric`),
   dual-engine `ApplicationMetricsRepository` (`record`/`latest_for_application`/
   `latest_all`; history kept), `job` (`CollectMetricsJob`, type `collect-metrics`:

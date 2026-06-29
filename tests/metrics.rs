@@ -145,3 +145,36 @@ async fn collect_route_enqueues_and_get_returns_metrics() {
     assert_eq!(body["metrics"].as_array().unwrap().len(), 1);
     assert_eq!(body["metrics"][0]["metric_key"], "coverage_pct");
 }
+
+#[tokio::test]
+async fn dashboard_api_aggregates_metrics() {
+    let sqlite = SqliteDb::start().await;
+    let app_id = seed_app(&sqlite.database()).await; // application named "api"
+    store::application_metrics(&sqlite.database())
+        .record(
+            app_id,
+            "llm",
+            &[Metric::new("coverage_pct", 75.0, Some("percent")), Metric::new("has_ci", 1.0, Some("bool"))],
+        )
+        .await
+        .unwrap();
+    let app = build_router(build_state_sqlite(&sqlite));
+    let cookies = login_cookies(&app, "admin", "admin").await;
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/api/platform/dashboard")
+                .header(COOKIE, cookie_header(&cookies))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(body["rollup"]["applications"].as_i64().unwrap() >= 1);
+    assert_eq!(body["rollup"]["with_ci"], 1);
+    assert_eq!(body["leaderboards"]["top_coverage"][0]["name"], "api");
+}
