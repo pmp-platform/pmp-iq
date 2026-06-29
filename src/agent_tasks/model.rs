@@ -10,6 +10,8 @@ pub mod status {
     pub const RUNNING: &str = "running";
     pub const AWAITING_INPUT: &str = "awaiting_input";
     pub const PR_OPEN: &str = "pr_open";
+    pub const MERGED: &str = "merged";
+    pub const CLOSED: &str = "closed";
     pub const FAILED: &str = "failed";
 }
 

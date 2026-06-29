@@ -5,7 +5,8 @@ use super::model::{
     AccountInput, AuthType, ProviderType, RemoteRepo, RepositoryAccount, SelectionMode,
 };
 use super::providers::{
-    ProviderDeps, PullRequest, PullRequestSpec, RepoMember, RepositoryProviderFactory,
+    PrCheck, PrComment, PrStatus, ProviderDeps, PullRequest, PullRequestSpec, RepoMember,
+    RepositoryProviderFactory,
 };
 use super::repository::RepositoryAccountRepository;
 use super::selector::RepoSelector;
@@ -157,6 +158,53 @@ impl AccountService {
         let provider =
             RepositoryProviderFactory::build(account, &self.deps).map_err(AppError::from)?;
         provider.open_pull_request(spec).await.map_err(AppError::from)
+    }
+
+    /// PR reconciliation reads (M24): status, comments, checks, and posting a
+    /// comment — each via the account's provider.
+    pub async fn pr_status(
+        &self,
+        account: &RepositoryAccount,
+        repo: &str,
+        number: u64,
+    ) -> Result<PrStatus, AppError> {
+        let provider =
+            RepositoryProviderFactory::build(account, &self.deps).map_err(AppError::from)?;
+        provider.pull_request_status(repo, number).await.map_err(AppError::from)
+    }
+
+    pub async fn pr_comments(
+        &self,
+        account: &RepositoryAccount,
+        repo: &str,
+        number: u64,
+    ) -> Result<Vec<PrComment>, AppError> {
+        let provider =
+            RepositoryProviderFactory::build(account, &self.deps).map_err(AppError::from)?;
+        provider.pull_request_comments(repo, number).await.map_err(AppError::from)
+    }
+
+    pub async fn pr_checks(
+        &self,
+        account: &RepositoryAccount,
+        repo: &str,
+        head_sha: &str,
+    ) -> Result<Vec<PrCheck>, AppError> {
+        let provider =
+            RepositoryProviderFactory::build(account, &self.deps).map_err(AppError::from)?;
+        provider.pull_request_checks(repo, head_sha).await.map_err(AppError::from)
+    }
+
+    pub async fn post_pr_comment(
+        &self,
+        account: &RepositoryAccount,
+        repo: &str,
+        number: u64,
+        body: &str,
+    ) -> Result<(), AppError> {
+        let provider =
+            RepositoryProviderFactory::build(account, &self.deps).map_err(AppError::from)?;
+        provider.post_pull_request_comment(repo, number, body).await.map_err(AppError::from)
     }
 
     /// Resolve the selected repositories for a given account (reused by jobs).

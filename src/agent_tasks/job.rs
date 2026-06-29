@@ -48,6 +48,10 @@ struct TurnInput {
     #[allow(dead_code)]
     message: String,
     ai_profile_id: Uuid,
+    /// Continue the existing pushed branch instead of resetting from the default
+    /// branch — used for follow-up turns and PR-watcher fixes (M24).
+    #[serde(default)]
+    continue_branch: bool,
 }
 
 /// The branch/credentials used to check out and publish this turn.
@@ -55,6 +59,8 @@ struct CheckoutPlan {
     base: String,
     branch: String,
     token: Option<String>,
+    /// Resume the existing branch (true) vs. fresh from the default branch.
+    continue_branch: bool,
 }
 
 /// Resolved state shared across a turn's publish steps.
@@ -66,6 +72,9 @@ struct TurnState<'a> {
     token: Option<String>,
     base: String,
     checkout: String,
+    /// True for follow-up / PR-watcher fix turns (push even if the agent
+    /// committed its own resolution).
+    continue_branch: bool,
 }
 
 /// Runs an agentic change session over one repository checkout.
@@ -117,21 +126,29 @@ impl AgentTaskJob {
             .workspace
             .repo_dir(&JobLocator::new(&ctx.job_name, ctx.job_id), &record.full_name)
             .map_err(|e| JobError::Failed(e.to_string()))?;
+        // Continue the existing pushed branch, or start fresh from the default.
+        let checkout_branch = if plan.continue_branch {
+            plan.branch.clone()
+        } else {
+            plan.base.clone()
+        };
         self.deps
             .git
             .sync_branch(CloneRequest {
                 clone_url: record.clone_url.clone(),
                 dest: dest.clone(),
-                branch: Some(plan.base.clone()),
+                branch: Some(checkout_branch),
                 token: plan.token.clone(),
             })
             .await
             .map_err(|e| JobError::Failed(e.to_string()))?;
-        self.deps
-            .git
-            .create_branch(dest.clone(), plan.branch.clone())
-            .await
-            .map_err(|e| JobError::Failed(e.to_string()))?;
+        if !plan.continue_branch {
+            self.deps
+                .git
+                .create_branch(dest.clone(), plan.branch.clone())
+                .await
+                .map_err(|e| JobError::Failed(e.to_string()))?;
+        }
         Ok(dest)
     }
 
@@ -206,7 +223,9 @@ impl AgentTaskJob {
             })
             .await
             .map_err(|e| JobError::Failed(e.to_string()))?;
-        if !committed {
+        // On a continue/fix turn the agent may have committed its own resolution,
+        // so push regardless; only a fresh turn with no edits reports no-change.
+        if !committed && !state.continue_branch {
             return self.no_changes(ctx, state, summary).await;
         }
         self.deps
@@ -308,6 +327,7 @@ impl AgentTaskJob {
             base: Self::base_branch(&record),
             branch: target.branch_name.clone(),
             token: token.clone(),
+            continue_branch: input.continue_branch,
         };
         let checkout = self.prepare_checkout(ctx, &record, &plan).await?;
         let state = TurnState {
@@ -318,6 +338,7 @@ impl AgentTaskJob {
             token,
             base: plan.base,
             checkout,
+            continue_branch: plan.continue_branch,
         };
         let summary = self.run_agent(ctx, &state, input.ai_profile_id).await?;
         self.publish(ctx, &state, &summary).await

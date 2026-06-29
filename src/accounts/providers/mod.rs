@@ -45,6 +45,33 @@ pub struct PullRequestSpec {
     pub body: String,
 }
 
+/// A PR's reconciliation status (M24).
+#[derive(Debug, Clone)]
+pub struct PrStatus {
+    /// `open` | `closed` | `merged`.
+    pub state: String,
+    /// `Some(false)` when the PR has merge conflicts; `None` when unknown.
+    pub mergeable: Option<bool>,
+    pub head_sha: String,
+}
+
+/// A comment on a PR.
+#[derive(Debug, Clone)]
+pub struct PrComment {
+    pub id: u64,
+    pub author: String,
+    pub body: String,
+}
+
+/// A CI check / Action result for a PR head commit.
+#[derive(Debug, Clone)]
+pub struct PrCheck {
+    pub name: String,
+    pub status: String,
+    /// `success` | `failure` | `cancelled` | … (None while pending).
+    pub conclusion: Option<String>,
+}
+
 /// Errors raised by repository providers.
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
@@ -113,6 +140,45 @@ pub trait RepositoryProvider: Send + Sync {
         _repo_full_name: &str,
         _number: u64,
     ) -> Result<PullRequest, ProviderError> {
+        Err(ProviderError::Unsupported)
+    }
+
+    // --- PR reconciliation (M24) --------------------------------------------
+
+    /// Open/closed/merged state + mergeability + head SHA of a PR.
+    async fn pull_request_status(
+        &self,
+        _repo_full_name: &str,
+        _number: u64,
+    ) -> Result<PrStatus, ProviderError> {
+        Err(ProviderError::Unsupported)
+    }
+
+    /// Comments on a PR (oldest first). Providers without comments return empty.
+    async fn pull_request_comments(
+        &self,
+        _repo_full_name: &str,
+        _number: u64,
+    ) -> Result<Vec<PrComment>, ProviderError> {
+        Ok(Vec::new())
+    }
+
+    /// CI checks / Action results for the PR head commit.
+    async fn pull_request_checks(
+        &self,
+        _repo_full_name: &str,
+        _head_sha: &str,
+    ) -> Result<Vec<PrCheck>, ProviderError> {
+        Ok(Vec::new())
+    }
+
+    /// Post a comment on a PR.
+    async fn post_pull_request_comment(
+        &self,
+        _repo_full_name: &str,
+        _number: u64,
+        _body: &str,
+    ) -> Result<(), ProviderError> {
         Err(ProviderError::Unsupported)
     }
 }

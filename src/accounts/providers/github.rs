@@ -1,8 +1,8 @@
 //! GitHub repository provider.
 
 use super::{
-    ProviderError, PullRequest, PullRequestSpec, RepoMember, RepositoryProvider,
-    retry_at_from_headers,
+    PrCheck, PrComment, PrStatus, ProviderError, PullRequest, PullRequestSpec, RepoMember,
+    RepositoryProvider, retry_at_from_headers,
 };
 use crate::accounts::model::RemoteRepo;
 use crate::httpclient::{HttpClient, HttpRequest, HttpResponse};
@@ -47,6 +47,48 @@ impl From<GhPull> for PullRequest {
             state: p.state,
         }
     }
+}
+
+#[derive(Deserialize)]
+struct GhPullDetail {
+    state: String,
+    #[serde(default)]
+    merged: bool,
+    #[serde(default)]
+    mergeable: Option<bool>,
+    head: GhHead,
+}
+
+#[derive(Deserialize)]
+struct GhHead {
+    sha: String,
+}
+
+#[derive(Deserialize)]
+struct GhIssueComment {
+    id: u64,
+    user: GhUser,
+    #[serde(default)]
+    body: String,
+}
+
+#[derive(Deserialize)]
+struct GhUser {
+    login: String,
+}
+
+#[derive(Deserialize)]
+struct GhCheckRuns {
+    #[serde(default)]
+    check_runs: Vec<GhCheckRun>,
+}
+
+#[derive(Deserialize)]
+struct GhCheckRun {
+    name: String,
+    status: String,
+    #[serde(default)]
+    conclusion: Option<String>,
 }
 
 /// Lists repositories visible to a GitHub token.
@@ -220,6 +262,86 @@ impl RepositoryProvider for GitHubProvider {
             serde_json::from_str(&resp.body).map_err(|e| ProviderError::Parse(e.to_string()))?;
         Ok(pr.into())
     }
+
+    async fn pull_request_status(
+        &self,
+        repo_full_name: &str,
+        number: u64,
+    ) -> Result<PrStatus, ProviderError> {
+        let url = format!("{}/repos/{}/pulls/{number}", self.base_url, repo_full_name);
+        let resp = self
+            .http
+            .send(self.request(&url))
+            .await
+            .map_err(|e| ProviderError::Request(e.to_string()))?;
+        Self::check_status(&resp)?;
+        let pr: GhPullDetail =
+            serde_json::from_str(&resp.body).map_err(|e| ProviderError::Parse(e.to_string()))?;
+        let state = if pr.merged { "merged" } else { pr.state.as_str() }.to_string();
+        Ok(PrStatus { state, mergeable: pr.mergeable, head_sha: pr.head.sha })
+    }
+
+    async fn pull_request_comments(
+        &self,
+        repo_full_name: &str,
+        number: u64,
+    ) -> Result<Vec<PrComment>, ProviderError> {
+        let url =
+            format!("{}/repos/{}/issues/{number}/comments?per_page=100", self.base_url, repo_full_name);
+        let resp = self
+            .http
+            .send(self.request(&url))
+            .await
+            .map_err(|e| ProviderError::Request(e.to_string()))?;
+        Self::check_status(&resp)?;
+        let comments: Vec<GhIssueComment> =
+            serde_json::from_str(&resp.body).map_err(|e| ProviderError::Parse(e.to_string()))?;
+        Ok(comments
+            .into_iter()
+            .map(|c| PrComment { id: c.id, author: c.user.login, body: c.body })
+            .collect())
+    }
+
+    async fn pull_request_checks(
+        &self,
+        repo_full_name: &str,
+        head_sha: &str,
+    ) -> Result<Vec<PrCheck>, ProviderError> {
+        let url = format!(
+            "{}/repos/{}/commits/{head_sha}/check-runs?per_page=100",
+            self.base_url, repo_full_name
+        );
+        let resp = self
+            .http
+            .send(self.request(&url))
+            .await
+            .map_err(|e| ProviderError::Request(e.to_string()))?;
+        Self::check_status(&resp)?;
+        let runs: GhCheckRuns =
+            serde_json::from_str(&resp.body).map_err(|e| ProviderError::Parse(e.to_string()))?;
+        Ok(runs
+            .check_runs
+            .into_iter()
+            .map(|c| PrCheck { name: c.name, status: c.status, conclusion: c.conclusion })
+            .collect())
+    }
+
+    async fn post_pull_request_comment(
+        &self,
+        repo_full_name: &str,
+        number: u64,
+        body: &str,
+    ) -> Result<(), ProviderError> {
+        let url = format!("{}/repos/{}/issues/{number}/comments", self.base_url, repo_full_name);
+        let payload = json!({ "body": body });
+        let resp = self
+            .http
+            .send(self.authed(HttpRequest::post(&url, payload.to_string())))
+            .await
+            .map_err(|e| ProviderError::Request(e.to_string()))?;
+        Self::check_status(&resp)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -336,6 +458,50 @@ mod tests {
         let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
         let pr = provider.open_pull_request(pr_spec()).await.unwrap();
         assert_eq!(pr.number, 3);
+    }
+
+    #[tokio::test]
+    async fn pull_request_status_detects_merged_and_head() {
+        let mut http = MockHttpClient::new();
+        http.expect_send().returning(|_| {
+            Ok(ok(r#"{"state":"closed","merged":true,"mergeable":null,"head":{"sha":"abc123"}}"#))
+        });
+        let p = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let s = p.pull_request_status("org/api", 7).await.unwrap();
+        assert_eq!(s.state, "merged");
+        assert_eq!(s.head_sha, "abc123");
+    }
+
+    #[tokio::test]
+    async fn pull_request_checks_report_failures() {
+        let mut http = MockHttpClient::new();
+        http.expect_send()
+            .withf(|r| r.url.contains("/commits/abc/check-runs"))
+            .returning(|_| {
+                Ok(ok(r#"{"check_runs":[{"name":"build","status":"completed","conclusion":"failure"}]}"#))
+            });
+        let p = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let checks = p.pull_request_checks("org/api", "abc").await.unwrap();
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].name, "build");
+        assert_eq!(checks[0].conclusion.as_deref(), Some("failure"));
+    }
+
+    #[tokio::test]
+    async fn comments_listed_and_posted() {
+        let mut http = MockHttpClient::new();
+        http.expect_send().returning(|r| {
+            if r.method == "POST" {
+                Ok(ok(r#"{"id":1}"#))
+            } else {
+                Ok(ok(r#"[{"id":5,"user":{"login":"alice"},"body":"please fix"}]"#))
+            }
+        });
+        let p = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let comments = p.pull_request_comments("org/api", 7).await.unwrap();
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].author, "alice");
+        assert!(p.post_pull_request_comment("org/api", 7, "🤖 on it").await.is_ok());
     }
 
     #[tokio::test]

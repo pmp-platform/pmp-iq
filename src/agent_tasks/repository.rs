@@ -24,6 +24,8 @@ pub trait AgentTaskRepository: Send + Sync {
     async fn create_target(&self, input: NewAgentTaskTarget) -> RepoResult<AgentTaskTarget>;
     async fn get_target(&self, id: Uuid) -> RepoResult<AgentTaskTarget>;
     async fn list_targets(&self, task_id: Uuid) -> RepoResult<Vec<AgentTaskTarget>>;
+    /// Targets with an open PR (status `pr_open` + a `pr_url`), for the watcher.
+    async fn list_open_pr_targets(&self) -> RepoResult<Vec<AgentTaskTarget>>;
     async fn update_target_status(
         &self,
         id: Uuid,
@@ -250,6 +252,16 @@ macro_rules! agent_task_impl {
                      ORDER BY created_at"
                 )))
                 .bind(task_id)
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(rows.into_iter().map(AgentTaskTarget::from).collect())
+            }
+
+            async fn list_open_pr_targets(&self) -> RepoResult<Vec<AgentTaskTarget>> {
+                let rows: Vec<TargetRow> = sqlx::query_as(&format!(
+                    "SELECT {TARGET_COLS} FROM agent_task_targets \
+                     WHERE status='pr_open' AND pr_url IS NOT NULL ORDER BY updated_at"
+                ))
                 .fetch_all(&self.pool)
                 .await?;
                 Ok(rows.into_iter().map(AgentTaskTarget::from).collect())

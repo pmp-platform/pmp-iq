@@ -147,12 +147,22 @@ impl AppState {
             ai_deps: ai_deps.clone(),
             lock: lock.clone(),
         });
+        let pr_watcher_job = crate::pr_watcher::PrWatcherJob::new(crate::pr_watcher::PrWatcherDeps {
+            tasks: agent_tasks.clone(),
+            repositories: repo_records.clone(),
+            accounts: accounts.clone(),
+            ai: ai.clone(),
+            jobs: jobs_repo.clone(),
+            executions: executions_repo.clone(),
+            agent_max_concurrency: config.agent_max_concurrency,
+        });
 
         let mut registry = JobTypeRegistry::new();
         registry.register(Arc::new(NoopJob));
         registry.register(Arc::new(review_job));
         registry.register(Arc::new(llm_job));
         registry.register(Arc::new(agent_job));
+        registry.register(Arc::new(pr_watcher_job));
         let registry = Arc::new(registry);
         let runner = Arc::new(JobRunner::new(RunnerDeps {
             jobs: jobs_repo.clone(),

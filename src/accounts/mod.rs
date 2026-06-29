@@ -11,8 +11,8 @@ pub use model::{
     AccountInput, AuthType, ProviderType, RemoteRepo, RepositoryAccount, SelectionMode,
 };
 pub use providers::{
-    ProviderDeps, ProviderError, PullRequest, PullRequestSpec, RepoMember, RepositoryProvider,
-    RepositoryProviderFactory,
+    PrCheck, PrComment, PrStatus, ProviderDeps, ProviderError, PullRequest, PullRequestSpec,
+    RepoMember, RepositoryProvider, RepositoryProviderFactory,
 };
 pub use repository::{
     PgRepositoryAccountRepository, RepositoryAccountRepository, SqliteRepositoryAccountRepository,

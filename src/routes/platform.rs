@@ -129,11 +129,14 @@ struct MultiTaskPayload {
 }
 
 /// Enqueue an `application-agent-task` turn for one repository target of a task.
+/// `continue_branch` resumes the existing PR branch (follow-ups) vs. starting
+/// fresh from the default branch (the first turn).
 async fn enqueue_turn(
     state: &AppState,
     task_id: Uuid,
     target_id: Uuid,
     message: &str,
+    continue_branch: bool,
 ) -> AppResult<Uuid> {
     let profile_id = default_profile(state).await?;
     let job_id =
@@ -144,11 +147,12 @@ async fn enqueue_turn(
         "target_id": target_id,
         "message": message,
         "ai_profile_id": profile_id,
+        "continue_branch": continue_branch,
     });
     state.runner.start_with_params(job_id, "agent", params).await
 }
 
-/// Add a repository target to a task and enqueue its first turn.
+/// Add a repository target to a task and enqueue its first (fresh-branch) turn.
 async fn add_target_and_enqueue(
     state: &AppState,
     task: &crate::agent_tasks::AgentTask,
@@ -163,7 +167,7 @@ async fn add_target_and_enqueue(
             branch_name: task.branch_name.clone(),
         })
         .await?;
-    enqueue_turn(state, task.id, target.id, message).await
+    enqueue_turn(state, task.id, target.id, message, false).await
 }
 
 /// List the AI Agent tasks for an application (newest first).
@@ -276,7 +280,8 @@ async fn post_agent_message(
     let targets = state.agent_tasks.list_targets(task_id).await?;
     let mut executions = Vec::new();
     for target in &targets {
-        executions.push(enqueue_turn(&state, task.id, target.id, &message).await?);
+        // Follow-ups continue the existing branch.
+        executions.push(enqueue_turn(&state, task.id, target.id, &message, true).await?);
     }
     Ok(Json(json!({ "execution_ids": executions })))
 }

@@ -68,6 +68,13 @@ impl JobRunner {
     ) -> Result<Uuid, AppError> {
         // Validate the job exists before enqueuing.
         self.deps.jobs.get(job_id).await?;
+        // Scheduled/cron triggers must not pile up: skip if one is already in
+        // flight (user-initiated turns still queue and run when a slot frees).
+        if matches!(trigger, "cron" | "schedule")
+            && self.deps.executions.count_running(job_id).await? > 0
+        {
+            return Err(AppError::Conflict("job already in flight".into()));
+        }
         let execution = self.deps.executions.create(job_id, trigger, &params).await?;
         self.dispatch_one(job_id).await;
         Ok(execution.id)

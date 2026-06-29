@@ -133,3 +133,42 @@ async fn target_crud_roundtrip() {
     assert_eq!(got.status, "pr_open");
     assert_eq!(got.pr_url.as_deref(), Some("https://example/pr/2"));
 }
+
+#[tokio::test]
+async fn list_open_pr_targets_filters_by_status() {
+    let (repo, app_id) = repo().await;
+    let task = repo
+        .create(NewAgentTask {
+            application_id: app_id,
+            repository_id: Uuid::new_v4(),
+            title: "watch".into(),
+        })
+        .await
+        .unwrap();
+    // One target with an open PR, one without.
+    let open = repo
+        .create_target(NewAgentTaskTarget {
+            task_id: task.id,
+            repository_id: Uuid::new_v4(),
+            branch_name: "agent/a".into(),
+        })
+        .await
+        .unwrap();
+    repo.update_target_status(open.id, "pr_open", Some("https://example/pull/3".into()))
+        .await
+        .unwrap();
+    let pending = repo
+        .create_target(NewAgentTaskTarget {
+            task_id: task.id,
+            repository_id: Uuid::new_v4(),
+            branch_name: "agent/b".into(),
+        })
+        .await
+        .unwrap();
+    let _ = pending;
+
+    let open_targets = repo.list_open_pr_targets().await.unwrap();
+    assert_eq!(open_targets.len(), 1);
+    assert_eq!(open_targets[0].id, open.id);
+    assert_eq!(open_targets[0].pr_url.as_deref(), Some("https://example/pull/3"));
+}

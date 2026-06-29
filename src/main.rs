@@ -92,6 +92,10 @@ async fn main() -> anyhow::Result<()> {
     {
         tracing::warn!(error = %e, "failed to seed application-agent-task job");
     }
+    // Ensure the per-minute PR-watcher cron job exists.
+    if let Err(e) = platiq::pr_watcher::ensure_job(state.jobs_repo.as_ref()).await {
+        tracing::warn!(error = %e, "failed to seed pr-watcher job");
+    }
 
     let scheduler = Arc::new(CronScheduler::new(
         state.runner.clone(),

@@ -94,6 +94,14 @@ as tables and a connection graph.
   `assets/platform-app-agent.js`. `GitClient` gains
   `create_branch`/`commit_all`/`push_branch`; `RepositoryProvider` gains
   `open_pull_request`/`get_pull_request` (GitHub impl, `Unsupported` default).
+- `src/pr_watcher.rs` — **PR watcher** (job type `pr-watcher`, cron `* * * * *`):
+  polls `list_open_pr_targets`; finishes merged/closed PRs, and on new review
+  comments / merge conflicts / failed checks posts a marker comment (`🤖 PlatIQ:`,
+  used to dedup) and enqueues a continue-branch agent fix turn as a **queued**
+  execution that the M27 dispatcher runs. Provider gains `pull_request_status`/
+  `pull_request_comments`/`pull_request_checks`/`post_pull_request_comment`
+  (GitHub impl; `Unsupported` defaults) + `AccountService` wrappers. The agent job
+  gained `continue_branch` (resume the PR branch vs. fresh from default).
 - `src/llm_request/` — `LlmRepositoryRequestJob` (job type `llm-repository-request`):
   clones/fetch-rebases a repo and runs an LLM session over the checkout, serialised
   by a per-repository lock; records full I/O + tokens; answer in execution metadata.
