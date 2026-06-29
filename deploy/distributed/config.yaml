@@ -1,0 +1,22 @@
+# Distributed topology: two app instances sharing Postgres + Redis.
+# Both instances mount this same file. Secrets (ENCRYPTION_KEY, SESSION_SECRET)
+# come from the container environment and MUST be identical across instances so
+# they decrypt the same data and validate each other's session cookies.
+server:
+  bind_address: 0.0.0.0
+  port: 8080
+
+database:
+  url: "postgres://postgres:postgres@db:5432/platform_inspector?sslmode=disable"
+  max_connections: 10
+
+# Redis backs the distributed lock so leader election and per-job/per-repo
+# serialisation coordinate across both instances.
+redis:
+  enabled: true
+  url: "redis://redis:6379"
+
+log:
+  level: info
+
+workspace_dir: /data/workspace

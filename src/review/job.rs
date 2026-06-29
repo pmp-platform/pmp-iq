@@ -7,19 +7,27 @@ use crate::ai::{AiProfileService, AiProvider, AiProviderDeps, AiProviderFactory}
 use crate::analysis_config::AnalysisConfigService;
 use crate::error::AppError;
 use crate::git::{CloneRequest, GitClient};
+use crate::hints::{EntityHint, EntityHintRepository};
+use crate::jobs::model::{JobInput, TriggerType};
+use crate::jobs::repository::JobRepository;
 use crate::jobs::{JobContext, JobError, JobOutcome, JobType};
+use crate::locks::{DistributedLock, Lease, lock_keys};
 use crate::platform::catalog::resolve_dependencies;
 use crate::platform::{AnalysisInput, Catalog, MemberInfo, PlatformQuery, PlatformWriter, RepositoryAnalyzer};
 use crate::repositories::{RepoRecord, RepoRecordInput, RepoRecordRepository};
-use crate::workspace::Workspace;
+use crate::workspace::{JobLocator, Workspace};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use uuid::Uuid;
 
 pub const JOB_TYPE: &str = "sync-repositories";
+
+/// Lease length for the per-job sync lock; refreshed between accounts.
+const LOCK_TTL: Duration = Duration::from_secs(120);
 
 /// Dependencies for the review job (bundled to bound parameter count).
 #[derive(Clone)]
@@ -34,6 +42,8 @@ pub struct ReviewDeps {
     pub ai: AiProfileService,
     pub ai_deps: AiProviderDeps,
     pub analysis_config: AnalysisConfigService,
+    pub lock: Arc<dyn DistributedLock>,
+    pub hints: Arc<dyn EntityHintRepository>,
 }
 
 /// Running tally for the job summary (also persisted in the resume checkpoint).
@@ -75,6 +85,8 @@ struct CloneTask<'a> {
 struct AnalysisCtx<'a> {
     provider: Option<&'a dyn AiProvider>,
     catalog: Option<&'a Catalog>,
+    /// When set, sync only the repository with this full name (per-app sync).
+    repo_filter: Option<String>,
 }
 
 /// Inputs for analysing one cloned repository (bundled to bound parameters).
@@ -130,6 +142,11 @@ impl ReviewRepositoriesJob {
         let token = self.deps.accounts.clone_token(account)?;
 
         for remote in &selected {
+            if let Some(filter) = &analysis.repo_filter {
+                if &remote.full_name != filter {
+                    continue;
+                }
+            }
             tally.repositories += 1;
             let task = CloneTask {
                 account,
@@ -189,7 +206,7 @@ impl ReviewRepositoriesJob {
         let dest = self
             .deps
             .workspace
-            .repo_dir(&ctx.execution_id.to_string(), &remote.full_name)
+            .repo_dir(&JobLocator::new(&ctx.job_name, ctx.job_id), &remote.full_name)
             .map_err(|e| e.to_string())?;
         let info = self
             .deps
@@ -211,6 +228,24 @@ impl ReviewRepositoriesJob {
         Ok(info.path)
     }
 
+    /// Resolve an optional per-execution scope: when `params.repository_id` is
+    /// set, sync only that repository — returns its `(account_id, full_name)`.
+    async fn sync_target(&self, params: &Value) -> Option<(Uuid, String)> {
+        let id = params.get("repository_id").and_then(|v| v.as_str())?;
+        let id = Uuid::parse_str(id).ok()?;
+        let record = self.deps.repositories.get(id).await.ok()?;
+        Some((record.account_id, record.full_name))
+    }
+
+    /// Load the user-configured hints for the application this repository maps
+    /// to (empty when the application doesn't exist yet, i.e. first sync).
+    async fn hints_for(&self, repository_id: Uuid) -> Vec<EntityHint> {
+        match self.deps.platform.repository_application(repository_id).await {
+            Ok(Some(app_id)) => self.deps.hints.list_for_application(app_id).await.unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
     async fn analyze(&self, ctx: &JobContext, input: AnalyzeInput<'_>, tally: &mut Tally) {
         let record = input.record;
         let cfg = self.deps.analysis_config.load().await.unwrap_or_default();
@@ -219,6 +254,7 @@ impl ReviewRepositoriesJob {
             repo_full_name: record.full_name.clone(),
             provider: input.provider,
             config: cfg.clone(),
+            hints: self.hints_for(record.id).await,
         };
         let mut result = match self.deps.analyzer.analyze(analysis).await {
             Ok(mut result) => {
@@ -319,7 +355,30 @@ impl JobType for ReviewRepositoriesJob {
     }
 
     async fn run(&self, ctx: JobContext) -> Result<JobOutcome, JobError> {
-        let provider = self.build_provider(&ctx).await?;
+        // Serialise repository syncs across instances with a per-job lock.
+        let key = lock_keys::job(ctx.job_id);
+        let mut lease = match self.deps.lock.acquire(&key, LOCK_TTL).await {
+            Ok(Some(lease)) => lease,
+            Ok(None) => {
+                ctx.log("another instance holds the sync lock — rescheduling").await;
+                return Err(JobError::CannotRun { retry_at: None });
+            }
+            Err(e) => return Err(JobError::Failed(format!("sync lock error: {e}"))),
+        };
+        let outcome = self.sweep(&ctx, &mut lease).await;
+        let _ = self.deps.lock.release(&lease).await;
+        outcome
+    }
+}
+
+impl ReviewRepositoriesJob {
+    /// The locked sweep: clone + analyse every enabled account's repositories,
+    /// refreshing the lock lease between accounts.
+    async fn sweep(&self, ctx: &JobContext, lease: &mut Lease) -> Result<JobOutcome, JobError> {
+        // Wrap the provider so all analysis prompts/responses are written to the
+        // execution output and token usage is recorded in its metadata.
+        let recorder = self.build_provider(ctx).await?.map(|p| ctx.recording_provider(p));
+        let provider: Option<&dyn AiProvider> = recorder.as_ref().map(|r| r as &dyn AiProvider);
         // Snapshot the known-entity catalog once (best-effort) so analysis can
         // canonicalize dependency targets without re-querying per repo.
         let catalog = if provider.is_some() {
@@ -333,9 +392,12 @@ impl JobType for ReviewRepositoriesJob {
         } else {
             None
         };
+        // Optional per-execution scope: sync only one repository (per-app sync).
+        let target = self.sync_target(&ctx.params).await;
         let analysis_ctx = AnalysisCtx {
-            provider: provider.as_deref(),
+            provider,
             catalog: catalog.as_ref(),
+            repo_filter: target.as_ref().map(|(_, full_name)| full_name.clone()),
         };
         let accounts = self
             .deps
@@ -355,6 +417,12 @@ impl JobType for ReviewRepositoriesJob {
         .await;
 
         for account in &accounts {
+            // When scoped to a single repository, skip every other account.
+            if let Some((account_id, _)) = &target {
+                if account.id != *account_id {
+                    continue;
+                }
+            }
             let key = account.id.to_string();
             if checkpoint.done_accounts.contains(&key) {
                 continue;
@@ -368,12 +436,15 @@ impl JobType for ReviewRepositoriesJob {
                 });
             }
             match self
-                .process_account(&ctx, account, &analysis_ctx, &mut checkpoint.tally)
+                .process_account(ctx, account, &analysis_ctx, &mut checkpoint.tally)
                 .await
             {
                 Ok(()) => {
                     checkpoint.done_accounts.insert(key);
                     ctx.save_state(&checkpoint.as_value()).await;
+                    if let Ok(renewed) = self.deps.lock.refresh(lease, LOCK_TTL).await {
+                        *lease = renewed;
+                    }
                 }
                 // Rate limited: self-pause until the limit resets.
                 Err(AppError::RateLimited { retry_at }) => {
@@ -411,4 +482,33 @@ impl JobType for ReviewRepositoriesJob {
             "analysis_failed": t.analysis_failed,
         })))
     }
+}
+
+/// Find the first `sync-repositories` job, creating one (configured with
+/// `ai_profile_id` when a default profile is available) if none exists. Returns
+/// its id so a per-application sync can be enqueued with a `repository_id` scope.
+pub async fn ensure_sync_job(
+    jobs: &dyn JobRepository,
+    ai_profile_id: Option<Uuid>,
+) -> Result<Uuid, AppError> {
+    let existing = jobs.list().await?;
+    if let Some(job) = existing.iter().find(|j| j.job_type == JOB_TYPE) {
+        return Ok(job.id);
+    }
+    let config = match ai_profile_id {
+        Some(id) => json!({ "ai_profile_id": id }),
+        None => json!({}),
+    };
+    let created = jobs
+        .create(JobInput {
+            job_type: JOB_TYPE.to_string(),
+            name: "Sync repositories".to_string(),
+            trigger_type: TriggerType::Manual,
+            cron_expr: None,
+            config,
+            enabled: true,
+            next_run_at: None,
+        })
+        .await?;
+    Ok(created.id)
 }

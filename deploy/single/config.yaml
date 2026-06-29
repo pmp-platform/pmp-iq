@@ -1,0 +1,18 @@
+# Single-instance topology: SQLite, no external dependencies.
+# Secrets (ENCRYPTION_KEY, SESSION_SECRET) come from the container environment
+# when set; otherwise the app's built-in development defaults apply.
+server:
+  bind_address: 0.0.0.0
+  port: 8080
+
+database:
+  url: "sqlite:///data/platform_inspector.db?mode=rwc"
+  max_connections: 10
+
+redis:
+  enabled: false
+
+log:
+  level: info
+
+workspace_dir: /data/workspace

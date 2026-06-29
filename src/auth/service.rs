@@ -1,10 +1,11 @@
 //! The authentication service: resolves the admin account from configuration
 //! and authenticates credentials against the registered strategies.
 
+use super::github::{GitHubIdentity, GitHubLoginStrategy};
 use super::password::{PasswordHasher, SecretGenerator};
 use super::principal::{AuthError, Credentials, Principal};
 use super::strategy::{LoginStrategy, StaticAdminStrategy};
-use crate::config::AuthConfig;
+use crate::config::{AuthConfig, AuthProvider};
 use std::sync::Arc;
 
 /// Describes how the admin account was resolved at boot.
@@ -27,11 +28,14 @@ pub struct AuthService {
 
 impl AuthService {
     /// Build the service from configuration, hashing the admin password (from
-    /// env, or generated when absent).
+    /// env, or generated when absent). When `provider` is `github` and a GitHub
+    /// identity client is supplied, the GitHub strategy is appended after the
+    /// admin strategy so admin login remains a fallback.
     pub fn from_config(
         auth: &AuthConfig,
         hasher: Arc<dyn PasswordHasher>,
         generator: &dyn SecretGenerator,
+        github_identity: Option<Arc<dyn GitHubIdentity>>,
     ) -> Result<AuthBootstrap, AuthError> {
         let username = auth.admin_user.clone().unwrap_or_else(|| "admin".to_string());
         let (password, generated) = match &auth.admin_pass {
@@ -42,11 +46,15 @@ impl AuthService {
             }
         };
         let hash = hasher.hash(&password)?;
-        let strategy = StaticAdminStrategy::new(username.clone(), hash, hasher);
+        let mut strategies: Vec<Box<dyn LoginStrategy>> =
+            vec![Box::new(StaticAdminStrategy::new(username.clone(), hash, hasher))];
+        if auth.provider == AuthProvider::Github {
+            if let (Some(identity), Some(github)) = (github_identity, auth.github.clone()) {
+                strategies.push(Box::new(GitHubLoginStrategy::new(identity, github)));
+            }
+        }
         Ok(AuthBootstrap {
-            service: Self {
-                strategies: vec![Box::new(strategy)],
-            },
+            service: Self { strategies },
             admin: AdminSetup {
                 username,
                 generated_password: generated,
@@ -79,10 +87,12 @@ mod tests {
 
     fn config(user: Option<&str>, pass: Option<&str>) -> AuthConfig {
         AuthConfig {
+            provider: crate::config::AuthProvider::Admin,
             admin_user: user.map(String::from),
             admin_pass: pass.map(String::from),
             session_secret: "s".into(),
             encryption_key: "k".into(),
+            github: None,
         }
     }
 
@@ -93,9 +103,13 @@ mod tests {
         let mut generator = MockSecretGenerator::new();
         generator.expect_generate().never();
 
-        let boot =
-            AuthService::from_config(&config(Some("root"), Some("pw")), Arc::new(hasher), &generator)
-                .unwrap();
+        let boot = AuthService::from_config(
+            &config(Some("root"), Some("pw")),
+            Arc::new(hasher),
+            &generator,
+            None,
+        )
+        .unwrap();
         assert_eq!(boot.admin.username, "root");
         assert!(boot.admin.generated_password.is_none());
     }
@@ -107,8 +121,8 @@ mod tests {
         let mut generator = MockSecretGenerator::new();
         generator.expect_generate().returning(|_| "generated-pw".into());
 
-        let boot =
-            AuthService::from_config(&config(None, None), Arc::new(hasher), &generator).unwrap();
+        let boot = AuthService::from_config(&config(None, None), Arc::new(hasher), &generator, None)
+            .unwrap();
         assert_eq!(boot.admin.username, "admin");
         assert_eq!(boot.admin.generated_password.as_deref(), Some("generated-pw"));
     }
@@ -120,6 +134,7 @@ mod tests {
             &config(Some("admin"), Some("hunter2")),
             Arc::new(Argon2Hasher),
             &RandomSecretGenerator,
+            None,
         )
         .unwrap();
         let ok = boot

@@ -23,6 +23,12 @@ impl Principal {
         }
     }
 
+    /// An operator authenticated via GitHub. Granted the admin role so they can
+    /// use the application like the static admin account.
+    pub fn github(login: impl Into<String>) -> Self {
+        Self::admin(login)
+    }
+
     pub fn has_role(&self, role: &str) -> bool {
         self.roles.iter().any(|r| r == role)
     }
@@ -43,6 +49,9 @@ pub enum AuthError {
 
     #[error("password hashing error: {0}")]
     Hashing(String),
+
+    #[error("authentication provider error: {0}")]
+    Provider(String),
 }
 
 #[cfg(test)]

@@ -15,6 +15,9 @@ pub trait FileSystem: Send + Sync {
     /// Names of immediate subdirectories of `path`.
     fn list_subdirs(&self, path: &str) -> Result<Vec<String>, FsError>;
 
+    /// Names of immediate (non-directory) files of `path`.
+    fn list_files(&self, path: &str) -> Result<Vec<String>, FsError>;
+
     /// Whether a path exists.
     fn exists(&self, path: &str) -> bool;
 
@@ -35,6 +38,20 @@ impl FileSystem for RealFileSystem {
         for entry in entries {
             let entry = entry.map_err(|e| FsError::Io(e.to_string()))?;
             if entry.path().is_dir() {
+                if let Some(name) = entry.file_name().to_str() {
+                    out.push(name.to_string());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn list_files(&self, path: &str) -> Result<Vec<String>, FsError> {
+        let mut out = Vec::new();
+        let entries = std::fs::read_dir(path).map_err(|e| FsError::Io(e.to_string()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| FsError::Io(e.to_string()))?;
+            if entry.path().is_file() {
                 if let Some(name) = entry.file_name().to_str() {
                     out.push(name.to_string());
                 }

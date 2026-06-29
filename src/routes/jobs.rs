@@ -46,6 +46,8 @@ struct JobPayload {
     config: Value,
     #[serde(default = "default_true")]
     enabled: bool,
+    #[serde(default)]
+    next_run_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 fn default_config() -> Value {
@@ -65,6 +67,7 @@ impl From<JobPayload> for JobInput {
             cron_expr: p.cron_expr,
             config: p.config,
             enabled: p.enabled,
+            next_run_at: p.next_run_at,
         }
     }
 }
@@ -78,6 +81,7 @@ struct JobView {
     cron_expr: Option<String>,
     config: Value,
     enabled: bool,
+    next_run_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl From<&Job> for JobView {
@@ -90,6 +94,7 @@ impl From<&Job> for JobView {
             cron_expr: j.cron_expr.clone(),
             config: j.config.clone(),
             enabled: j.enabled,
+            next_run_at: j.next_run_at,
         }
     }
 }

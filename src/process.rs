@@ -23,6 +23,8 @@ pub struct CommandSpec {
     pub stdin: Option<String>,
     /// Extra environment variables for the child process (name, value).
     pub env: Vec<(String, String)>,
+    /// Working directory for the child process (defaults to the parent's).
+    pub cwd: Option<String>,
 }
 
 /// Errors from running a command.
@@ -53,6 +55,9 @@ impl CommandRunner for TokioCommandRunner {
         let mut command = Command::new(&spec.program);
         command.args(&spec.args);
         command.envs(spec.env.clone());
+        if let Some(cwd) = &spec.cwd {
+            command.current_dir(cwd);
+        }
         command.stdout(std::process::Stdio::piped());
         command.stderr(std::process::Stdio::piped());
         if spec.stdin.is_some() {

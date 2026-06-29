@@ -4,7 +4,9 @@
 use super::model::{
     AccountInput, AuthType, ProviderType, RemoteRepo, RepositoryAccount, SelectionMode,
 };
-use super::providers::{ProviderDeps, RepoMember, RepositoryProviderFactory};
+use super::providers::{
+    ProviderDeps, PullRequest, PullRequestSpec, RepoMember, RepositoryProviderFactory,
+};
 use super::repository::RepositoryAccountRepository;
 use super::selector::RepoSelector;
 use crate::error::AppError;
@@ -145,6 +147,18 @@ impl AccountService {
             .map_err(AppError::from)
     }
 
+    /// Open (or reuse) a pull request via the account's provider. Returns a
+    /// clear error for providers that cannot open PRs.
+    pub async fn open_pull_request(
+        &self,
+        account: &RepositoryAccount,
+        spec: PullRequestSpec,
+    ) -> Result<PullRequest, AppError> {
+        let provider =
+            RepositoryProviderFactory::build(account, &self.deps).map_err(AppError::from)?;
+        provider.open_pull_request(spec).await.map_err(AppError::from)
+    }
+
     /// Resolve the selected repositories for a given account (reused by jobs).
     pub async fn select_for(
         &self,
@@ -191,6 +205,109 @@ mod tests {
             selection_value: None,
             enabled: true,
         }
+    }
+
+    use crate::httpclient::HttpResponse;
+
+    /// Provider deps with a configurable HTTP client and a token-decrypting
+    /// encryptor.
+    fn deps_with_http(http: MockHttpClient) -> ProviderDeps {
+        let mut enc = MockEncryptor::new();
+        enc.expect_decrypt().returning(|_| Ok(b"ghp_token".to_vec()));
+        ProviderDeps {
+            http: Arc::new(http),
+            fs: Arc::new(MockFileSystem::new()),
+            encryptor: Arc::new(enc),
+        }
+    }
+
+    fn github_account() -> RepositoryAccount {
+        RepositoryAccount {
+            id: Uuid::new_v4(),
+            name: "gh".into(),
+            provider_type: ProviderType::Github,
+            auth_type: AuthType::Token,
+            base_url: None,
+            credentials_enc: Some(vec![1]),
+            selection_mode: SelectionMode::All,
+            selection_value: None,
+            enabled: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn validate_calls_the_provider() {
+        let mut http = MockHttpClient::new();
+        http.expect_send().returning(|_| Ok(HttpResponse::new(200, "{}")));
+        let mut repo = MockRepositoryAccountRepository::new();
+        repo.expect_get().returning(|_| Ok(github_account()));
+        let svc = AccountService::new(Arc::new(repo), deps_with_http(http));
+        assert!(svc.validate(Uuid::new_v4()).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn preview_lists_selected_repositories() {
+        let mut http = MockHttpClient::new();
+        let mut call = 0;
+        http.expect_send().returning(move |_| {
+            call += 1;
+            Ok(if call == 1 {
+                HttpResponse::new(
+                    200,
+                    r#"[{"name":"api","full_name":"org/api","clone_url":"u","default_branch":"main","private":false}]"#,
+                )
+            } else {
+                HttpResponse::new(200, "[]")
+            })
+        });
+        let mut repo = MockRepositoryAccountRepository::new();
+        repo.expect_get().returning(|_| Ok(github_account()));
+        let svc = AccountService::new(Arc::new(repo), deps_with_http(http));
+        assert_eq!(svc.preview(Uuid::new_v4()).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn members_for_lists_collaborators() {
+        let mut http = MockHttpClient::new();
+        let mut call = 0;
+        http.expect_send().returning(move |_| {
+            call += 1;
+            Ok(if call == 1 {
+                HttpResponse::new(200, r#"[{"login":"alice","role_name":"admin"}]"#)
+            } else {
+                HttpResponse::new(200, "[]")
+            })
+        });
+        let svc = AccountService::new(
+            Arc::new(MockRepositoryAccountRepository::new()),
+            deps_with_http(http),
+        );
+        let members = svc.members_for(&github_account(), "org/api").await.unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].username, "alice");
+    }
+
+    #[tokio::test]
+    async fn clone_token_decrypts_stored_credential() {
+        let svc = AccountService::new(
+            Arc::new(MockRepositoryAccountRepository::new()),
+            deps_with_http(MockHttpClient::new()),
+        );
+        assert_eq!(svc.clone_token(&github_account()).unwrap().as_deref(), Some("ghp_token"));
+    }
+
+    #[tokio::test]
+    async fn get_list_delete_passthrough() {
+        let mut repo = MockRepositoryAccountRepository::new();
+        repo.expect_get().returning(|_| Ok(github_account()));
+        repo.expect_list().returning(|| Ok(vec![github_account()]));
+        repo.expect_list_enabled().returning(|| Ok(vec![]));
+        repo.expect_delete().returning(|_| Ok(()));
+        let svc = AccountService::new(Arc::new(repo), deps_with_http(MockHttpClient::new()));
+        assert!(svc.get(Uuid::new_v4()).await.is_ok());
+        assert_eq!(svc.list().await.unwrap().len(), 1);
+        assert!(svc.list_enabled().await.unwrap().is_empty());
+        assert!(svc.delete(Uuid::new_v4()).await.is_ok());
     }
 
     #[tokio::test]

@@ -161,11 +161,11 @@ impl SqlitePlatformQuery {
     }
 
     async fn app_detail(&self, id: Uuid) -> RepoResult<Value> {
-        let base: Option<(String, Opt, Opt, Opt, Value)> = sqlx::query_as(
-            "SELECT name, app_type, description, primary_language, metadata FROM applications WHERE id=?1",
+        let base: Option<(String, Opt, Opt, Opt, Value, Option<Uuid>)> = sqlx::query_as(
+            "SELECT name, app_type, description, primary_language, metadata, repository_id FROM applications WHERE id=?1",
         )
         .bind(id).fetch_optional(&self.pool).await?;
-        let (name, app_type, description, primary_language, metadata) =
+        let (name, app_type, description, primary_language, metadata, repository_id) =
             base.ok_or(RepoError::NotFound)?;
 
         let languages: Vec<(String, Option<f64>)> = sqlx::query_as(
@@ -195,6 +195,7 @@ impl SqlitePlatformQuery {
         let mut out = json!({
             "id": id.to_string(), "name": name, "app_type": app_type, "description": description,
             "primary_language": primary_language, "metadata": metadata,
+            "repository_id": repository_id.map(|r| r.to_string()),
             "languages": languages.into_iter().map(|(name, percentage)| json!({"name": name, "percentage": percentage})).collect::<Vec<_>>(),
             "libraries": libraries.into_iter().map(|(id, name, ecosystem, version, scope, metadata)| json!({"id": id.to_string(), "name": name, "ecosystem": ecosystem, "version": version, "scope": scope, "metadata": metadata})).collect::<Vec<_>>(),
             "dependencies": dependencies.into_iter().map(|(target_name, kind, description, target_app_id, component_id, component_name)| json!({"target_name": target_name, "kind": kind, "description": description, "target_app_id": target_app_id.map(|t| t.to_string()), "component_id": component_id.map(|c| c.to_string()), "component_name": component_name})).collect::<Vec<_>>(),
@@ -218,7 +219,11 @@ impl SqlitePlatformQuery {
             let signals: Vec<(Uuid, String, String, Opt)> = sqlx::query_as(
                 "SELECT id, name, kind, description FROM observability_signals WHERE component_id=?1 ORDER BY name",
             ).bind(component_id).fetch_all(&self.pool).await?;
+            let files: Vec<(String,)> = sqlx::query_as(
+                "SELECT path FROM component_files WHERE component_id=?1 ORDER BY path",
+            ).bind(component_id).fetch_all(&self.pool).await?;
             out.push(json!({"id": component_id.to_string(), "name": name, "kind": kind, "description": description, "metadata": metadata,
+                "files": files.into_iter().map(|(p,)| p).collect::<Vec<_>>(),
                 "observability_signals": signals.into_iter().map(|(sid, sname, skind, sdesc)| json!({"id": sid.to_string(), "name": sname, "kind": skind, "description": sdesc})).collect::<Vec<_>>()}));
         }
         Ok(out)
@@ -237,7 +242,11 @@ impl SqlitePlatformQuery {
             let diagrams: Vec<(Uuid, String, String, Opt, String)> = sqlx::query_as(
                 "SELECT id, name, kind, description, content FROM diagrams WHERE use_case_id=?1 ORDER BY name",
             ).bind(use_case_id).fetch_all(&self.pool).await?;
+            let files: Vec<(String,)> = sqlx::query_as(
+                "SELECT path FROM use_case_files WHERE use_case_id=?1 ORDER BY path",
+            ).bind(use_case_id).fetch_all(&self.pool).await?;
             out.push(json!({"id": use_case_id.to_string(), "name": name, "description": description, "metadata": metadata,
+                "files": files.into_iter().map(|(p,)| p).collect::<Vec<_>>(),
                 "components": comps.into_iter().map(|(cid, cname)| json!({"id": cid.to_string(), "name": cname})).collect::<Vec<_>>(),
                 "diagrams": diagrams.into_iter().map(|(did, dname, dkind, ddesc, dcontent)| json!({"id": did.to_string(), "name": dname, "kind": dkind, "description": ddesc, "content": dcontent})).collect::<Vec<_>>()}));
         }
@@ -395,5 +404,23 @@ impl PlatformQuery for SqlitePlatformQuery {
         Ok(Catalog::new(
             rows.into_iter().map(|(name, kind)| CatalogEntry { name, kind }).collect(),
         ))
+    }
+
+    async fn application_repository(&self, app_id: Uuid) -> RepoResult<Option<Uuid>> {
+        let row: Option<(Option<Uuid>,)> =
+            sqlx::query_as("SELECT repository_id FROM applications WHERE id = ?1")
+                .bind(app_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.and_then(|(repo,)| repo))
+    }
+
+    async fn repository_application(&self, repository_id: Uuid) -> RepoResult<Option<Uuid>> {
+        let row: Option<(Uuid,)> =
+            sqlx::query_as("SELECT id FROM applications WHERE repository_id = ?1")
+                .bind(repository_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|(id,)| id))
     }
 }

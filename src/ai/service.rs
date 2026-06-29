@@ -130,6 +130,91 @@ mod tests {
         }
     }
 
+    fn cli_profile() -> AiProfile {
+        AiProfile {
+            id: Uuid::new_v4(),
+            name: "cli".into(),
+            provider_type: AiProviderType::ClaudeCli,
+            config: json!({ "binary_path": "claude" }),
+            secrets_enc: None,
+            enabled: true,
+        }
+    }
+
+    /// AI deps whose command runner returns a fixed stdout.
+    fn cli_deps(stdout: &'static str) -> AiProviderDeps {
+        let mut runner = MockCommandRunner::new();
+        runner.expect_run().returning(move |_| {
+            Ok(crate::process::CommandOutput {
+                status: 0,
+                stdout: stdout.into(),
+                stderr: String::new(),
+            })
+        });
+        AiProviderDeps {
+            http: Arc::new(MockHttpClient::new()),
+            runner: Arc::new(runner),
+            encryptor: Arc::new(MockEncryptor::new()),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_list_delete_passthrough() {
+        let mut repo = MockAiProfileRepository::new();
+        repo.expect_get().returning(|_| Ok(cli_profile()));
+        repo.expect_list().returning(|| Ok(vec![cli_profile()]));
+        repo.expect_delete().returning(|_| Ok(()));
+        let svc = AiProfileService::new(Arc::new(repo), deps());
+        assert!(svc.get(Uuid::new_v4()).await.is_ok());
+        assert_eq!(svc.list().await.unwrap().len(), 1);
+        assert!(svc.delete(Uuid::new_v4()).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn update_reuses_existing_secret_when_key_blank() {
+        let mut repo = MockAiProfileRepository::new();
+        repo.expect_get()
+            .returning(|_| Ok(AiProfile { secrets_enc: Some(vec![7, 7]), ..cli_profile() }));
+        repo.expect_update()
+            .withf(|_, i: &AiProfileInput| i.secrets_enc.as_deref() == Some(&[7, 7][..]))
+            .returning(|id, i| {
+                Ok(AiProfile {
+                    id,
+                    name: i.name,
+                    provider_type: i.provider_type,
+                    config: i.config,
+                    secrets_enc: i.secrets_enc,
+                    enabled: i.enabled,
+                })
+            });
+        let svc = AiProfileService::new(Arc::new(repo), deps());
+        let form = ProfileForm {
+            name: "x".into(),
+            provider_type: AiProviderType::ClaudeCli,
+            config: json!({ "binary_path": "claude" }),
+            api_key: None,
+            enabled: true,
+        };
+        assert!(svc.update(Uuid::new_v4(), form).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn validate_runs_the_provider() {
+        let mut repo = MockAiProfileRepository::new();
+        repo.expect_get().returning(|_| Ok(cli_profile()));
+        let svc = AiProfileService::new(Arc::new(repo), cli_deps("claude 1.0\n"));
+        assert!(svc.validate(Uuid::new_v4()).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_prompt_returns_the_completion() {
+        let mut repo = MockAiProfileRepository::new();
+        repo.expect_get().returning(|_| Ok(cli_profile()));
+        let svc = AiProfileService::new(Arc::new(repo), cli_deps(r#"{"result":"hi there"}"#));
+        let resp = svc.test_prompt(Uuid::new_v4(), "hello").await.unwrap();
+        assert_eq!(resp.text, "hi there");
+    }
+
     #[tokio::test]
     async fn create_encrypts_api_key() {
         let mut repo = MockAiProfileRepository::new();

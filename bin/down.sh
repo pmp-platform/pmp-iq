@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# Tear down the docker compose stack. Optional first arg: a compose profile.
+# Tear down a docker compose topology. Optional first arg mirrors up.sh:
+#   single | distributed | <profile> | (empty)
+# Named volumes are kept so data persists across up/down cycles.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PROFILE="${1:-}"
-if [ -n "$PROFILE" ]; then
-  docker compose --profile "$PROFILE" rm -f --all
-else
-  docker compose rm -f --all
-fi
+TARGET="${1:-}"
+
+case "$TARGET" in
+  single)
+    docker compose -f docker-compose.single.yml rm -f --all ;;
+  distributed)
+    docker compose -f docker-compose.distributed.yml rm -f --all ;;
+  "")
+    docker compose rm -f --all ;;
+  *)
+    docker compose --profile "$TARGET" rm -f --all ;;
+esac

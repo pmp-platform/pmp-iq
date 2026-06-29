@@ -16,6 +16,7 @@ fn register(env: &mut Environment<'static>) {
         ("base.html", include_str!("../../templates/base.html")),
         ("home.html", include_str!("../../templates/home.html")),
         ("login.html", include_str!("../../templates/login.html")),
+        ("_login_form.html", include_str!("../../templates/_login_form.html")),
         ("settings.html", include_str!("../../templates/settings.html")),
         ("jobs.html", include_str!("../../templates/jobs.html")),
         ("job_detail.html", include_str!("../../templates/job_detail.html")),
@@ -78,6 +79,41 @@ mod tests {
         assert!(html.contains("Dashboard"));
         assert!(html.contains("admin"));
         assert!(html.contains("/assets/vendor/jquery.min.js"));
+    }
+
+    #[test]
+    fn renders_login_form_for_each_provider() {
+        let engine = TemplateEngine::new();
+        // Admin (default): the password form with the CSRF field is rendered
+        // (the `_login_form.html` partial must be embedded).
+        let admin = engine
+            .render(
+                "login.html",
+                context! { csrf => "tok123", error => (), auth_provider => "admin", github_mode => "" },
+            )
+            .unwrap();
+        assert!(admin.contains("name=\"csrf\" value=\"tok123\""));
+        assert!(admin.contains("Password"));
+
+        // GitHub oauth_app mode shows the "Sign in with GitHub" button.
+        let gh = engine
+            .render(
+                "login.html",
+                context! { csrf => "t", error => (), auth_provider => "github", github_mode => "oauth_app" },
+            )
+            .unwrap();
+        assert!(gh.contains("/auth/github/login"));
+        assert!(gh.contains("Sign in with GitHub"));
+
+        // GitHub personal_token mode relabels the form for a token.
+        let pat = engine
+            .render(
+                "login.html",
+                context! { csrf => "t", error => (), auth_provider => "github", github_mode => "personal_token" },
+            )
+            .unwrap();
+        assert!(pat.contains("Personal access token"));
+        assert!(pat.contains("name=\"csrf\""));
     }
 
     #[test]

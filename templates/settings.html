@@ -14,7 +14,7 @@
   <div data-panel="accounts">
     <div class="flex items-center justify-between mb-2">
       <span class="text-slate-500">{{ accounts }} configured</span>
-      <button id="add-account-btn" data-modal-open="account-modal" class="bg-slate-900 text-white rounded px-3 py-1.5">Add account</button>
+      <button id="add-account-btn" data-modal-open="account-modal" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">Add account</button>
     </div>
     <table class="w-full bg-white rounded-lg shadow border border-slate-200" id="accounts-table">
       <thead class="text-left text-slate-500 border-b">
@@ -27,7 +27,7 @@
 
   <div data-panel="ai">
     <div class="flex items-center justify-end mb-2">
-      <button data-modal-open="profile-modal" class="bg-slate-900 text-white rounded px-3 py-1.5">Add AI profile</button>
+      <button data-modal-open="profile-modal" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">Add AI profile</button>
     </div>
     <table class="w-full bg-white rounded-lg shadow border border-slate-200" id="profiles-table">
       <thead class="text-left text-slate-500 border-b">
@@ -79,13 +79,13 @@
       </div>
       <div id="list-field" class="hidden space-y-2">
         <div id="repo-list" class="space-y-2"></div>
-        <button type="button" id="add-repo" class="text-sm border rounded px-3 py-1.5">+ Add repository</button>
+        <button type="button" id="add-repo" class="bg-slate-100 text-slate-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-slate-200">+ Add repository</button>
       </div>
       <div class="flex items-center justify-between pt-1">
         <span id="account-msg" class="text-xs"></span>
         <div class="flex gap-2">
-          <button type="button" data-modal-close class="border rounded px-3 py-1.5">Cancel</button>
-          <button class="bg-slate-900 text-white rounded px-3 py-1.5">Save</button>
+          <button type="button" data-modal-close class="bg-slate-100 text-slate-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-slate-200">Cancel</button>
+          <button class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">Save</button>
         </div>
       </div>
     </form>
@@ -128,8 +128,8 @@
       <div class="flex items-center justify-between pt-1">
         <span id="profile-msg" class="text-xs"></span>
         <div class="flex gap-2">
-          <button type="button" data-modal-close class="border rounded px-3 py-1.5">Cancel</button>
-          <button class="bg-slate-900 text-white rounded px-3 py-1.5">Save</button>
+          <button type="button" data-modal-close class="bg-slate-100 text-slate-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-slate-200">Cancel</button>
+          <button class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">Save</button>
         </div>
       </div>
     </form>

@@ -150,7 +150,7 @@ fn app_detail_sql() -> String {
     }
     format!(
         "SELECT to_jsonb(t) FROM (SELECT \
-         a.id, a.name, a.app_type, a.description, a.primary_language, a.metadata, \
+         a.id, a.name, a.app_type, a.description, a.primary_language, a.metadata, a.repository_id, \
          (SELECT json_agg(json_build_object('name', l.name, 'percentage', al.percentage)) \
             FROM application_languages al JOIN languages l ON l.id=al.language_id WHERE al.application_id=a.id) AS languages, \
          (SELECT json_agg(json_build_object('id', lib.id, 'name', lib.name, 'ecosystem', lib.ecosystem, \
@@ -171,12 +171,15 @@ fn app_detail_sql() -> String {
          (SELECT json_agg(json_build_object('id', c.id, 'name', c.name, 'kind', c.kind, \
              'description', c.description, 'metadata', c.metadata, 'observability_signals', \
              (SELECT json_agg(json_build_object('id', s.id, 'name', s.name, 'kind', s.kind, 'description', s.description)) \
-                FROM observability_signals s WHERE s.component_id=c.id))) \
+                FROM observability_signals s WHERE s.component_id=c.id), 'files', \
+             (SELECT json_agg(cf.path ORDER BY cf.path) FROM component_files cf WHERE cf.component_id=c.id))) \
             FROM components c WHERE c.application_id=a.id) AS components, \
          (SELECT json_agg(json_build_object('id', uc.id, 'name', uc.name, 'description', uc.description, \
              'metadata', uc.metadata, 'components', \
              (SELECT json_agg(json_build_object('id', cc.id, 'name', cc.name)) \
                 FROM use_case_components ucc JOIN components cc ON cc.id=ucc.component_id WHERE ucc.use_case_id=uc.id), \
+             'files', \
+             (SELECT json_agg(ucf.path ORDER BY ucf.path) FROM use_case_files ucf WHERE ucf.use_case_id=uc.id), \
              'diagrams', \
              (SELECT json_agg(json_build_object('id', dg.id, 'name', dg.name, 'kind', dg.kind, \
                  'description', dg.description, 'content', dg.content)) \
@@ -288,5 +291,23 @@ impl PlatformQuery for PgPlatformQuery {
         Ok(Catalog::new(
             rows.into_iter().map(|(name, kind)| CatalogEntry { name, kind }).collect(),
         ))
+    }
+
+    async fn application_repository(&self, app_id: Uuid) -> RepoResult<Option<Uuid>> {
+        let row: Option<(Option<Uuid>,)> =
+            sqlx::query_as("SELECT repository_id FROM applications WHERE id = $1")
+                .bind(app_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.and_then(|(repo,)| repo))
+    }
+
+    async fn repository_application(&self, repository_id: Uuid) -> RepoResult<Option<Uuid>> {
+        let row: Option<(Uuid,)> =
+            sqlx::query_as("SELECT id FROM applications WHERE repository_id = $1")
+                .bind(repository_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|(id,)| id))
     }
 }

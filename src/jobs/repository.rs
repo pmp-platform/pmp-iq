@@ -20,16 +20,33 @@ pub trait JobRepository: Send + Sync {
     async fn get(&self, id: Uuid) -> RepoResult<Job>;
     async fn list(&self) -> RepoResult<Vec<Job>>;
     async fn list_enabled_cron(&self) -> RepoResult<Vec<Job>>;
+    /// Enabled jobs whose `next_run_at` has elapsed (the schedule poll).
+    async fn list_due(&self, now: DateTime<Utc>) -> RepoResult<Vec<Job>>;
+    /// Set (or clear) a job's next scheduled run time.
+    async fn set_next_run_at(&self, id: Uuid, when: Option<DateTime<Utc>>) -> RepoResult<()>;
 }
 
 /// Access to job executions.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait JobExecutionRepository: Send + Sync {
-    async fn create(&self, job_id: Uuid, trigger: &str) -> RepoResult<JobExecution>;
+    async fn create(&self, job_id: Uuid, trigger: &str, params: &Value) -> RepoResult<JobExecution>;
     async fn update(&self, id: Uuid, update: ExecutionUpdate) -> RepoResult<()>;
+    /// Deep-merge a JSON patch into the execution's `metadata`.
+    async fn merge_metadata(&self, id: Uuid, patch: &Value) -> RepoResult<()>;
+    /// Record a liveness heartbeat at `now`. Returns `true` while the execution
+    /// is still running, `false` once it has been cancelled/finished (so the job
+    /// stops). `now` is bound (not `CURRENT_TIMESTAMP`) so heartbeat timestamps
+    /// compare consistently against `list_stale`'s cutoff on both engines.
+    async fn heartbeat(&self, id: Uuid, now: DateTime<Utc>) -> RepoResult<bool>;
+    /// Running executions whose last heartbeat is at or before `cutoff` (stale).
+    async fn list_stale(&self, cutoff: DateTime<Utc>) -> RepoResult<Vec<JobExecution>>;
+    /// Cancel a running execution (e.g. when it has gone stale).
+    async fn cancel(&self, id: Uuid, finished_at: DateTime<Utc>, reason: &str) -> RepoResult<()>;
     async fn get(&self, id: Uuid) -> RepoResult<JobExecution>;
     async fn list(&self, limit: i64) -> RepoResult<Vec<JobExecution>>;
+    /// Recent executions of one job, newest first.
+    async fn list_for_job(&self, job_id: Uuid, limit: i64) -> RepoResult<Vec<JobExecution>>;
     async fn count_running(&self, job_id: Uuid) -> RepoResult<i64>;
     /// Persist a job's resume checkpoint without changing status.
     async fn save_state(&self, id: Uuid, state: &Value) -> RepoResult<()>;
@@ -55,6 +72,7 @@ struct JobRow {
     cron_expr: Option<String>,
     config: Value,
     enabled: bool,
+    next_run_at: Option<DateTime<Utc>>,
 }
 
 impl TryFrom<JobRow> for Job {
@@ -68,6 +86,7 @@ impl TryFrom<JobRow> for Job {
             cron_expr: row.cron_expr,
             config: row.config,
             enabled: row.enabled,
+            next_run_at: row.next_run_at,
         })
     }
 }
@@ -86,6 +105,9 @@ struct ExecRow {
     state: Option<Value>,
     resume_at: Option<DateTime<Utc>>,
     pause_requested: bool,
+    params: Value,
+    metadata: Value,
+    heartbeat_at: Option<DateTime<Utc>>,
 }
 
 impl TryFrom<ExecRow> for JobExecution {
@@ -104,13 +126,18 @@ impl TryFrom<ExecRow> for JobExecution {
             state: row.state,
             resume_at: row.resume_at,
             pause_requested: row.pause_requested,
+            params: row.params,
+            metadata: row.metadata,
+            heartbeat_at: row.heartbeat_at,
         })
     }
 }
 
-const JOB_COLS: &str = "id, job_type, name, trigger_type, cron_expr, config, enabled";
+const JOB_COLS: &str = "id, job_type, name, trigger_type, cron_expr, config, enabled, next_run_at";
+const JOB_RETURNING: &str =
+    "id, job_type, name, trigger_type, cron_expr, config, enabled, next_run_at";
 const EXEC_COLS: &str = "id, job_id, status, trigger, started_at, finished_at, summary, error, \
-     logs, state, resume_at, pause_requested";
+     logs, state, resume_at, pause_requested, params, metadata, heartbeat_at";
 
 macro_rules! job_repo_impl {
     ($name:ident, $pool:ty, $xform:path) => {
@@ -126,11 +153,10 @@ macro_rules! job_repo_impl {
         impl JobRepository for $name {
             async fn create(&self, input: JobInput) -> RepoResult<Job> {
                 let id = Uuid::new_v4();
-                let row: JobRow = sqlx::query_as(&$xform(
-                    "INSERT INTO jobs (id, job_type, name, trigger_type, cron_expr, config, enabled) \
-                     VALUES ($1,$2,$3,$4,$5,$6,$7) \
-                     RETURNING id, job_type, name, trigger_type, cron_expr, config, enabled",
-                ))
+                let row: JobRow = sqlx::query_as(&$xform(&format!(
+                    "INSERT INTO jobs (id, job_type, name, trigger_type, cron_expr, config, enabled, next_run_at) \
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING {JOB_RETURNING}",
+                )))
                 .bind(id)
                 .bind(&input.job_type)
                 .bind(&input.name)
@@ -138,17 +164,18 @@ macro_rules! job_repo_impl {
                 .bind(&input.cron_expr)
                 .bind(&input.config)
                 .bind(input.enabled)
+                .bind(input.next_run_at)
                 .fetch_one(&self.pool)
                 .await?;
                 row.try_into()
             }
 
             async fn update(&self, id: Uuid, input: JobInput) -> RepoResult<Job> {
-                let row: JobRow = sqlx::query_as(&$xform(
+                let row: JobRow = sqlx::query_as(&$xform(&format!(
                     "UPDATE jobs SET job_type=$2, name=$3, trigger_type=$4, cron_expr=$5, config=$6, \
-                     enabled=$7, updated_at=CURRENT_TIMESTAMP WHERE id=$1 \
-                     RETURNING id, job_type, name, trigger_type, cron_expr, config, enabled",
-                ))
+                     enabled=$7, next_run_at=$8, updated_at=CURRENT_TIMESTAMP WHERE id=$1 \
+                     RETURNING {JOB_RETURNING}",
+                )))
                 .bind(id)
                 .bind(&input.job_type)
                 .bind(&input.name)
@@ -156,6 +183,7 @@ macro_rules! job_repo_impl {
                 .bind(&input.cron_expr)
                 .bind(&input.config)
                 .bind(input.enabled)
+                .bind(input.next_run_at)
                 .fetch_optional(&self.pool)
                 .await?
                 .ok_or(RepoError::NotFound)?;
@@ -202,6 +230,31 @@ macro_rules! job_repo_impl {
                 .await?;
                 rows.into_iter().map(Job::try_from).collect()
             }
+
+            async fn list_due(&self, now: DateTime<Utc>) -> RepoResult<Vec<Job>> {
+                let rows: Vec<JobRow> = sqlx::query_as(&$xform(&format!(
+                    "SELECT {JOB_COLS} FROM jobs \
+                     WHERE enabled AND next_run_at IS NOT NULL AND next_run_at <= $1 \
+                     ORDER BY next_run_at"
+                )))
+                .bind(now)
+                .fetch_all(&self.pool)
+                .await?;
+                rows.into_iter().map(Job::try_from).collect()
+            }
+
+            async fn set_next_run_at(
+                &self,
+                id: Uuid,
+                when: Option<DateTime<Utc>>,
+            ) -> RepoResult<()> {
+                sqlx::query(&$xform("UPDATE jobs SET next_run_at=$2 WHERE id=$1"))
+                    .bind(id)
+                    .bind(when)
+                    .execute(&self.pool)
+                    .await?;
+                Ok(())
+            }
         }
     };
 }
@@ -218,20 +271,38 @@ macro_rules! exec_repo_impl {
         }
         #[async_trait]
         impl JobExecutionRepository for $name {
-            async fn create(&self, job_id: Uuid, trigger: &str) -> RepoResult<JobExecution> {
+            async fn create(
+                &self,
+                job_id: Uuid,
+                trigger: &str,
+                params: &Value,
+            ) -> RepoResult<JobExecution> {
                 let id = Uuid::new_v4();
-                let row: ExecRow = sqlx::query_as(&$xform(
-                    "INSERT INTO job_executions (id, job_id, status, trigger) \
-                     VALUES ($1,$2,'queued',$3) \
-                     RETURNING id, job_id, status, trigger, started_at, finished_at, summary, error, \
-                               logs, state, resume_at, pause_requested",
-                ))
+                let row: ExecRow = sqlx::query_as(&$xform(&format!(
+                    "INSERT INTO job_executions (id, job_id, status, trigger, params) \
+                     VALUES ($1,$2,'queued',$3,$4) RETURNING {EXEC_COLS}",
+                )))
                 .bind(id)
                 .bind(job_id)
                 .bind(trigger)
+                .bind(params)
                 .fetch_one(&self.pool)
                 .await?;
                 row.try_into()
+            }
+
+            async fn merge_metadata(&self, id: Uuid, patch: &Value) -> RepoResult<()> {
+                // Read-modify-write: the execution is updated by a single job task
+                // sequentially, so this avoids engine-specific JSON-merge SQL.
+                let current = self.get(id).await?;
+                let mut metadata = current.metadata;
+                crate::jobs::model::merge_object(&mut metadata, patch);
+                sqlx::query(&$xform("UPDATE job_executions SET metadata=$2 WHERE id=$1"))
+                    .bind(id)
+                    .bind(&metadata)
+                    .execute(&self.pool)
+                    .await?;
+                Ok(())
             }
 
             async fn save_state(&self, id: Uuid, state: &Value) -> RepoResult<()> {
@@ -287,7 +358,7 @@ macro_rules! exec_repo_impl {
                 sqlx::query(&$xform(
                     "UPDATE job_executions SET status=$2, started_at=COALESCE($3, started_at), \
                      finished_at=COALESCE($4, finished_at), summary=COALESCE($5, summary), \
-                     error=COALESCE($6, error) WHERE id=$1",
+                     error=COALESCE($6, error), heartbeat_at=COALESCE($7, heartbeat_at) WHERE id=$1",
                 ))
                 .bind(id)
                 .bind(update.status.as_str())
@@ -295,6 +366,47 @@ macro_rules! exec_repo_impl {
                 .bind(update.finished_at)
                 .bind(update.summary)
                 .bind(update.error)
+                .bind(update.heartbeat_at)
+                .execute(&self.pool)
+                .await?;
+                Ok(())
+            }
+
+            async fn heartbeat(&self, id: Uuid, now: DateTime<Utc>) -> RepoResult<bool> {
+                let res = sqlx::query(&$xform(
+                    "UPDATE job_executions SET heartbeat_at=$2 WHERE id=$1 AND status='running'",
+                ))
+                .bind(id)
+                .bind(now)
+                .execute(&self.pool)
+                .await?;
+                Ok(res.rows_affected() > 0)
+            }
+
+            async fn list_stale(&self, cutoff: DateTime<Utc>) -> RepoResult<Vec<JobExecution>> {
+                let rows: Vec<ExecRow> = sqlx::query_as(&$xform(&format!(
+                    "SELECT {EXEC_COLS} FROM job_executions \
+                     WHERE status='running' AND heartbeat_at IS NOT NULL AND heartbeat_at <= $1"
+                )))
+                .bind(cutoff)
+                .fetch_all(&self.pool)
+                .await?;
+                rows.into_iter().map(JobExecution::try_from).collect()
+            }
+
+            async fn cancel(
+                &self,
+                id: Uuid,
+                finished_at: DateTime<Utc>,
+                reason: &str,
+            ) -> RepoResult<()> {
+                sqlx::query(&$xform(
+                    "UPDATE job_executions SET status='cancelled', finished_at=$2, error=$3 \
+                     WHERE id=$1 AND status='running'",
+                ))
+                .bind(id)
+                .bind(finished_at)
+                .bind(reason)
                 .execute(&self.pool)
                 .await?;
                 Ok(())
@@ -315,6 +427,18 @@ macro_rules! exec_repo_impl {
                 let rows: Vec<ExecRow> = sqlx::query_as(&$xform(&format!(
                     "SELECT {EXEC_COLS} FROM job_executions ORDER BY created_at DESC LIMIT $1"
                 )))
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?;
+                rows.into_iter().map(JobExecution::try_from).collect()
+            }
+
+            async fn list_for_job(&self, job_id: Uuid, limit: i64) -> RepoResult<Vec<JobExecution>> {
+                let rows: Vec<ExecRow> = sqlx::query_as(&$xform(&format!(
+                    "SELECT {EXEC_COLS} FROM job_executions WHERE job_id=$1 \
+                     ORDER BY created_at DESC LIMIT $2"
+                )))
+                .bind(job_id)
                 .bind(limit)
                 .fetch_all(&self.pool)
                 .await?;

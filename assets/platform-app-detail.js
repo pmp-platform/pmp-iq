@@ -202,8 +202,8 @@
       $wrap.append('<div class="text-xs text-slate-500 mb-2">' + esc(diagram.description) + "</div>");
     }
     var $bar = $('<div class="flex gap-1 mb-2"></div>').appendTo($wrap);
-    var $view = $('<div class="overflow-auto border border-slate-200 rounded bg-white" style="height:72vh"></div>').appendTo($wrap);
-    var $inner = $('<div style="transform-origin:top left; display:inline-block; padding:8px;"></div>').appendTo($view);
+    var $view = $('<div class="overflow-auto border border-slate-200 rounded bg-white" style="height:72vh; text-align:center"></div>').appendTo($wrap);
+    var $inner = $('<div style="transform-origin:top center; display:inline-block; text-align:left; padding:8px;"></div>').appendTo($view);
     var source = diagram.content || "";
 
     var scale = 1;
@@ -218,10 +218,24 @@
     if (typeof mermaid === "undefined" || !source.trim()) { fail("Diagram unavailable"); return; }
     try {
       mermaid.render("mmd-" + (++diagramSeq), source)
-        .then(function (res) { $inner.html(res.svg); $inner.find("svg").css({ maxWidth: "none", height: "auto" }); })
+        .then(function (res) { $inner.html(res.svg); sizeSvgNaturally($inner.find("svg")); })
         .catch(function (err) { fail("Diagram failed to render: " + (err && err.message)); });
     } catch (err) {
       fail("Diagram failed to render: " + (err && err.message));
+    }
+  }
+
+  // Mermaid renders sequence/flow SVGs with `width:100%`, which collapses inside
+  // an inline-block wrapper (the diagram looks tiny). Pin the SVG to its natural
+  // viewBox dimensions so it renders full-size; the zoom buttons take it from there.
+  function sizeSvgNaturally($svg) {
+    if (!$svg.length) return;
+    var vb = ($svg.attr("viewBox") || "").split(/[\s,]+/).map(parseFloat);
+    if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) {
+      $svg.attr({ width: vb[2], height: vb[3] })
+        .css({ maxWidth: "none", width: vb[2] + "px", height: vb[3] + "px" });
+    } else {
+      $svg.css({ maxWidth: "none", height: "auto" });
     }
   }
 
@@ -276,10 +290,17 @@
     // Defer to the next frame so the now-visible modal has laid out before the
     // first diagram renders.
     requestAnimationFrame(function () {
-      tabset($("#uc-modal-tabs"), $("#uc-modal-body"), [
+      var $tabs = $("#uc-modal-tabs");
+      tabset($tabs, $("#uc-modal-body"), [
         { label: "Sequence diagram", render: function ($p) { renderDiagramList($p, sequence, "No sequence diagram for this use case."); } },
         { label: "Component diagram", render: function ($p) { renderDiagramList($p, component, "No component diagram for this use case."); } },
       ]);
+      // Right-aligned LLM Hints button for this specific use case.
+      if (window.PIHints) {
+        $('<div class="ml-auto self-center"></div>')
+          .append(PIHints.button({ entityType: "use_case", key: uc.name }))
+          .appendTo($tabs);
+      }
     });
   }
 
@@ -305,6 +326,32 @@
     attachG6Controls($("#uc-flow-ctrls"), g);
   }
 
+  // ---- Components (with a per-row "Details" file viewer) ------------------
+
+  function renderComponents($panel, d) {
+    $panel.empty();
+    var comps = d.components || [];
+    hintBar("component", comps.map(function (c) { return c.name; })).appendTo($panel);
+    var $card = $('<div class="bg-white rounded-lg shadow border border-slate-200 p-3 overflow-auto"></div>').appendTo($panel);
+    var $tbl = $('<table class="w-full text-sm"></table>').appendTo($card);
+    $tbl.append('<thead><tr class="text-left text-slate-500 border-b">' +
+      '<th class="py-2 pr-3">Name</th><th class="py-2 pr-3">Kind</th>' +
+      '<th class="py-2 pr-3">Description</th><th class="py-2 pr-3">Files</th><th class="py-2"></th></tr></thead>');
+    var $tb = $("<tbody></tbody>").appendTo($tbl);
+    comps.forEach(function (c) {
+      var $tr = $('<tr class="border-b last:border-0 align-top"></tr>');
+      $tr.append('<td class="py-2 pr-3">' + esc(c.name) + "</td>");
+      $tr.append('<td class="py-2 pr-3">' + (c.kind ? PI.badgeFor(c.kind) : "—") + "</td>");
+      $tr.append('<td class="py-2 pr-3">' + esc(c.description || "—") + "</td>");
+      $tr.append('<td class="py-2 pr-3 text-slate-500">' + (c.files || []).length + "</td>");
+      var $td = $('<td class="py-2"></td>');
+      var $btn = $('<button type="button" class="bg-blue-100 text-blue-700 rounded px-2 py-0.5 text-xs font-medium hover:bg-blue-200">Details</button>');
+      $btn.on("click", function () { if (window.PIFiles) PIFiles.openFiles({ title: c.name, files: c.files || [] }); });
+      $tr.append($td.append($btn));
+      $tb.append($tr);
+    });
+  }
+
   // ---- Tables -------------------------------------------------------------
 
   function entityLink(entity) {
@@ -315,19 +362,66 @@
     return Object.keys(perms).filter(function (k) { return perms[k] === true; }).join(", ");
   }
 
-  // A tab whose body is a single PI.localTable.
+  // A right-aligned "LLM Hints" bar scoped to an entity type (+ entity names).
+  function hintBar(entityType, keys) {
+    var $bar = $('<div class="flex justify-end mb-2"></div>');
+    if (window.PIHints) $bar.append(PIHints.button({ entityType: entityType, keys: keys || [] }));
+    return $bar;
+  }
+
+  // A tab whose body is a single PI.localTable; an optional `hintType` adds a
+  // per-section LLM-hints bar (with the rows' names as selectable scopes).
   function tableRender(opts) {
     return function ($panel) {
-      opts.mount = $('<div></div>').appendTo($panel.empty());
+      $panel.empty();
+      if (opts.hintType) {
+        var keys = (opts.rows || []).map(function (r) { return r.name; }).filter(Boolean);
+        $panel.append(hintBar(opts.hintType, keys));
+      }
+      opts.mount = $('<div></div>').appendTo($panel);
       PI.localTable(opts);
     };
   }
 
   // ---- Page assembly ------------------------------------------------------
 
+  // Page-header actions, shown when the app has a configured repository:
+  // "Ask a Question" (opens the Q&A modal) and "Sync" (scoped sync run).
+  function renderSyncButton(d) {
+    var $actions = $("#app-actions").empty();
+    if (!d.repository_id) return;
+    var $ask = $('<button type="button" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">Ask a Question</button>');
+    $ask.on("click", function () { if (window.PIAsk) PIAsk.open(); });
+    $actions.append($ask);
+    var $btn = $('<button type="button" class="bg-emerald-100 text-emerald-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-emerald-200 disabled:opacity-50">Sync</button>');
+    var $note = $('<span class="text-xs text-slate-500"></span>');
+    $actions.append($btn).append($note);
+    $btn.on("click", function () {
+      PI.confirm(
+        "Sync this repository now? It clones/updates the repository and re-runs analysis.",
+        function () {
+          $btn.prop("disabled", true);
+          $note.text("Scheduling…");
+          $.ajax({ url: "/api/platform/applications/" + d.id + "/sync", method: "POST" })
+            .done(function (r) {
+              $note.html('Sync scheduled · <a class="text-blue-600 hover:underline" href="/jobs/executions/' +
+                r.execution_id + '">view job</a>');
+              $btn.prop("disabled", false);
+            })
+            .fail(function (xhr) {
+              var err = xhr.responseJSON && xhr.responseJSON.error;
+              $note.text("Error: " + ((err && err.message) || "could not schedule sync"));
+              $btn.prop("disabled", false);
+            });
+        }
+      );
+    });
+  }
+
   function render(d) {
     $("#detail-title").text(d.name || "Application");
     $("#crumb-current").text(d.name || "Application");
+    renderSyncButton(d);
 
     var tabs = [];
     tabs.push({ label: "Overview", render: function ($p) {
@@ -343,16 +437,21 @@
       $("#ov-props").html(propsHtml(d));
       $("#ov-langs").html(languagesHtml(d));
       attachG6Controls($("#ov-ctrls"), overviewGraph(document.getElementById("ov-graph"), d));
+      hintBar("application").appendTo($p);
     } });
 
-    tabs.push({ label: "Use cases", render: function ($p) { renderUseCases($p, d); } });
+    tabs.push({ label: "Use cases", render: function ($p) {
+      hintBar("use_case", (d.use_cases || []).map(function (u) { return u.name; })).appendTo($p);
+      var $list = $("<div></div>").appendTo($p);
+      renderUseCases($list, d);
+    } });
 
     function linkedTab(key, label) {
       if (!(d[key] || []).length) return;
       tabs.push({ label: label, render: tableRender({
         title: label, rows: d[key],
         columns: [["name", "Name"], ["kind", "Kind"], ["version", "Version"], ["usage", "Usage"]],
-        filterKey: "kind", link: entityLink(key),
+        filterKey: "kind", link: entityLink(key), hintType: key.replace(/-/g, "_"),
       }) });
     }
     linkedTab("services", "Services");
@@ -363,18 +462,14 @@
       tabs.push({ label: "Libraries", render: tableRender({
         title: "Libraries", rows: d.libraries,
         columns: [["name", "Name"], ["ecosystem", "Ecosystem"], ["version", "Version"], ["scope", "Scope"]],
-        filterKey: "ecosystem", link: entityLink("libraries"),
+        filterKey: "ecosystem", link: entityLink("libraries"), hintType: "library",
       }) });
     }
     linkedTab("tools", "Tools");
     linkedTab("external", "External");
 
     if ((d.components || []).length) {
-      tabs.push({ label: "Components", render: tableRender({
-        title: "Components", rows: d.components,
-        columns: [["name", "Name"], ["kind", "Kind"], ["description", "Description"]],
-        filterKey: "kind",
-      }) });
+      tabs.push({ label: "Components", render: function ($p) { renderComponents($p, d); } });
     }
 
     var signals = [];
@@ -387,7 +482,7 @@
       tabs.push({ label: "Observability", render: tableRender({
         title: "Observability signals", rows: signals,
         columns: [["name", "Signal"], ["kind", "Kind"], ["component", "Component"], ["description", "Description"]],
-        filterKeys: ["kind", "component"],
+        filterKeys: ["kind", "component"], hintType: "observability_signal",
       }) });
     }
 
@@ -400,6 +495,16 @@
       filterKeys: ["association_type", "principal_type"],
     }) });
 
+    tabs.push({ label: "File Explorer", render: function ($p) {
+      if (window.PIFiles) { PIFiles.mount($p); }
+      else { $p.html('<div class="text-sm text-red-600">File explorer unavailable.</div>'); }
+    } });
+
+    tabs.push({ label: "AI Agent", render: function ($p) {
+      if (window.PIAgent) { PIAgent.render($p); }
+      else { $p.html('<div class="text-sm text-red-600">AI Agent unavailable.</div>'); }
+    } });
+
     var $root = $("#app-detail").empty();
     var $bar = $('<div class="border-b border-slate-200 mb-4 flex gap-1 flex-wrap"></div>').appendTo($root);
     var $body = $("<div></div>").appendTo($root);
@@ -408,7 +513,12 @@
 
   $(function () {
     if (typeof mermaid !== "undefined") {
-      mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        flowchart: { useMaxWidth: false },
+        sequence: { useMaxWidth: false },
+      });
     }
     // Friendly property names are best-effort; render regardless of the result.
     $.getJSON("/api/settings/entity-properties")

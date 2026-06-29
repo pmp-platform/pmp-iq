@@ -184,6 +184,9 @@ pub struct ComponentInfo {
     pub metadata: Value,
     #[serde(default)]
     pub observability_signals: Vec<ObservabilitySignalInfo>,
+    /// Repository-relative paths this component is implemented in.
+    #[serde(default)]
+    pub files: Vec<String>,
 }
 
 /// A signal a component emits (metric, trace, log, …).
@@ -212,6 +215,9 @@ pub struct UseCaseInfo {
     pub components: Vec<String>,
     #[serde(default)]
     pub diagrams: Vec<DiagramInfo>,
+    /// Repository-relative paths this use case affects.
+    #[serde(default)]
+    pub files: Vec<String>,
 }
 
 /// A mermaid diagram (its `kind` names the mermaid diagram type; `content` is the

@@ -69,19 +69,51 @@ cargo run
 If `ADMIN_USER` / `ADMIN_PASS` are unset, an `admin` user with a random password
 is generated on boot and printed once to the logs.
 
+### GitHub login
+
+Set `auth.provider: github` (or `AUTH_PROVIDER=github`) to authenticate via
+GitHub instead of the static admin account. Two modes (`auth.github.mode`):
+
+- **`oauth_app`** — a "Sign in with GitHub" web flow backed by a GitHub App /
+  OAuth app (`client_id` + `client_secret` + `redirect_url`).
+- **`personal_token`** — the user enters their GitHub username and a personal
+  access token at the login form.
+
+In both modes the user must pass an allowlist (`allowed_orgs` and/or
+`allowed_logins`); with both empty, no one is authorised. The admin account
+remains as a fallback. See [`config.example.yaml`](config.example.yaml).
+
 ## Configuration
 
-All configuration comes from the environment; see [`.env.example`](.env.example)
-for the full list. Key variables:
+Configuration is layered: an **optional `config.yaml`** provides values, the
+**process environment** overrides them, and built-in **defaults** fill the rest
+(`env > file > default`). With no file present, behaviour is pure env + defaults.
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `DATABASE_URL` | `sqlite://platform_inspector.db?mode=rwc` | SQLite file (default) or a `postgres://` URL |
-| `PORT` | `8080` | HTTP port |
-| `ADMIN_USER` / `ADMIN_PASS` | — | Static admin login (generated if unset) |
-| `SESSION_SECRET` | dev value | Session signing secret |
-| `ENCRYPTION_KEY` | dev value | Base64 32-byte key for secrets at rest |
-| `WORKSPACE_DIR` | `tmp/workspace` | Where repositories are cloned |
+- The file is looked up next to the binary, then in the working directory; the
+  path is overridable with `--config-file <path>` (a missing explicit path is a
+  hard error, a missing default-location file is simply absent).
+- Any file value can pull from the environment with `${VAR}` or
+  `${VAR:-default}`, so secrets stay outside the file. See
+  [`config.example.yaml`](config.example.yaml) for the full schema.
+
+```bash
+platform-inspector --config-file /etc/platform-inspector/config.yaml
+```
+
+Key settings (env var | `config.yaml` path):
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `DATABASE_URL` \| `database.url` | `sqlite://platform_inspector.db?mode=rwc` | SQLite file (default) or a `postgres://` URL |
+| `PORT` \| `server.port` | `8080` | HTTP port |
+| `REDIS_ENABLED` \| `redis.enabled` | `false` | Use Redis to back the distributed lock |
+| `REDIS_URL` \| `redis.url` | `redis://localhost:6379` | Redis connection URL |
+| `AUTH_PROVIDER` \| `auth.provider` | `admin` | Login provider: `admin` or `github` |
+| `ADMIN_USER` / `ADMIN_PASS` \| `auth.*` | — | Static admin login (generated if unset) |
+| `SESSION_SECRET` \| `auth.session_secret` | dev value | Session signing secret |
+| `ENCRYPTION_KEY` \| `auth.encryption_key` | dev value | Base64 32-byte key for secrets at rest |
+| `LOG_LEVEL` \| `log.level` | `info` | Log level (`RUST_LOG` still wins) |
+| `WORKSPACE_DIR` \| `workspace_dir` | `tmp/workspace` | Where repositories are cloned |
 
 ## Database & migrations
 
@@ -97,6 +129,32 @@ Migrations exist per engine: `db/migrations/` (PostgreSQL) and
 bin/up.sh migrate          # bring up Postgres and run `dbmate up`
 dbmate new <name>          # create a new migration (leave migrate:down empty)
 ```
+
+## Running with Docker
+
+A multi-stage [`Dockerfile`](Dockerfile) builds a slim runtime image. Two compose
+topologies are provided, selected by the first argument to `bin/up.sh`:
+
+```bash
+bin/up.sh single        # one app container on SQLite, no dependencies
+bin/up.sh distributed   # two app instances + nginx + Postgres + Redis
+bin/down.sh single      # tear a topology down (named volumes persist)
+```
+
+- **single** — `docker-compose.single.yml` runs one container reading
+  `deploy/single/config.yaml`; the SQLite file and cloned workspaces persist in
+  the `app_data` volume. App served on `:8080`.
+- **distributed** — `docker-compose.distributed.yml` runs `app1` + `app2` behind
+  nginx (`:8080`), sharing Postgres + Redis (`deploy/distributed/config.yaml`,
+  `redis.enabled: true`). dbmate applies the schema before the apps start. With
+  two instances, exactly one holds the controller-leader lease and jobs/locks
+  serialise across instances through the shared Redis lock. nginx uses `ip_hash`
+  so a client stays pinned to one instance (the session store is in-memory).
+
+Set `ENCRYPTION_KEY` (and, for distributed, `SESSION_SECRET`) in your shell
+before `bin/up.sh` for non-default secrets; both are passed through to the
+containers when present, and **must be identical** across the distributed
+instances. Without them the app's built-in development defaults apply.
 
 ## Front-end assets
 
@@ -181,6 +239,63 @@ harness in `tests/common/`.
    zoom/reset controls); per-relation tables (services, cloud providers, platforms,
    libraries, tools, external, components, observability signals — each shown
    only when present); and an always-present **Members** tab.
+
+## Jobs, distributed locks & LLM features
+
+- **Distributed locks** (`src/locks/`): a `DistributedLock` trait — a named lock
+  with a TTL that can be **refreshed** — with an in-memory backend (the default
+  for single-instance/SQLite) and a SQL-backed backend over `controller_locks`
+  for multi-instance deployments. Used for controller leader election and to
+  serialise jobs by resource key.
+- **Scheduling & resilience:** jobs carry a `next_run_at` time polled by the
+  leader-elected controller. A job that can't run right now (e.g. it can't take
+  its lock) returns `JobError::CannotRun { retry_at }`; the runner **reschedules**
+  it (at `retry_at`, or `now + 5m`) and records the execution as `skipped` rather
+  than failed. Each job runs in its own workspace
+  `{WORKSPACE_DIR}/jobs/{job-name}/{job-id}` (persisted across runs, so clones are
+  reused). The `sync-repositories` job takes a per-job lock.
+- **Liveness heartbeat:** the runner heartbeats each execution from a background
+  task for its whole run, so a long-but-healthy job (a slow sync, a long LLM
+  call) is never cancelled mid-run. The leader controller cancels executions
+  whose heartbeat is older than 5 minutes — which only happens once the worker
+  process/runtime has died (its heartbeat task can no longer beat); the runner
+  won't overwrite a stale-cancelled execution with a terminal status.
+- **Live output & metadata:** executions stream raw `output` (the `logs` column)
+  and a `metadata` JSON object that jobs update while running. Any job that uses
+  an LLM wraps its provider in a recorder that writes the **full prompt + response**
+  to the output and accumulates **token usage** into the metadata.
+- **`llm-repository-request` job:** clones (or fetches + rebases) a repository and
+  runs an LLM session over the checkout with a supplied input, serialised by a
+  per-repository lock. The answer and token usage are returned in the execution.
+- **Per-application Sync:** when an application has a configured repository, its
+  detail page shows a **Sync** button that schedules a `sync-repositories` run
+  scoped to just that repository (via a `repository_id` execution param).
+- **Ask the LLM about an application:** the application detail page has a prompt
+  box that queues an `llm-repository-request` for the app's repository and keeps
+  a **history** of the questions asked / being processed, polling until answered.
+- **LLM hints** (`src/hints/`): every section of the application detail (Overview,
+  Use cases, Components, libraries/services/…, and inside each use case) has an
+  *LLM Hints* button that records free-text corrections scoped to the entity type
+  or a specific entity. Hints are keyed by the entity's natural name (so they
+  survive re-syncs) and are injected into the analysis prompt as authoritative
+  corrections on the next sync.
+- **File attribution & File Explorer:** the analyzer records which repository
+  files each use case and component affects; the application detail page has a
+  *File Explorer* **tab** with a lazy file tree of the cloned checkout, a
+  read-only **CodeMirror** viewer with per-language syntax highlighting, and
+  **Markdown rendering** (CodeMirror + marked vendored in `assets/vendor/`). File
+  access is sandboxed to the checkout root (path traversal is rejected).
+- **AI Agent tasks** (`src/agent_tasks/`): the application detail page has an
+  *AI Agent* **tab** for creating change **tasks**. Each task is a multi-turn
+  session with an agentic AI (the Claude CLI provider) that, per turn, checks out
+  a dedicated `agent/<id>` branch, edits files, commits, pushes, and opens (or
+  updates) a **pull request** — serialised per repository with a distributed lock.
+  Follow-up messages refine the change on the same branch/PR; the transcript and
+  live PR link are shown in a chat-style view. Requires a writable repository and
+  a CLI-capable AI profile (PR creation is GitHub-only).
+- **Job execution details:** the execution page streams live output and has a
+  *More Details* modal showing the full record (summary, metadata, params, state)
+  as prettified JSON.
 
 ## Project layout
 

@@ -428,6 +428,16 @@ macro_rules! platform_writer_impl {
                         .execute(&self.pool)
                         .await?;
                     }
+                    for path in &component.files {
+                        sqlx::query(&$xform(
+                            "INSERT INTO component_files (component_id, path) \
+                             VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                        ))
+                        .bind(component_id)
+                        .bind(path)
+                        .execute(&self.pool)
+                        .await?;
+                    }
                     ids.insert(component.name.clone(), component_id);
                 }
                 Ok(ids)
@@ -481,6 +491,16 @@ macro_rules! platform_writer_impl {
                         .bind(&diagram.description)
                         .bind(&diagram.content)
                         .bind(&diagram.metadata)
+                        .execute(&self.pool)
+                        .await?;
+                    }
+                    for path in &use_case.files {
+                        sqlx::query(&$xform(
+                            "INSERT INTO use_case_files (use_case_id, path) \
+                             VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                        ))
+                        .bind(use_case_id)
+                        .bind(path)
                         .execute(&self.pool)
                         .await?;
                     }

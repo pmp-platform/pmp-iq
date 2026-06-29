@@ -87,8 +87,8 @@
           '<div class="bg-white rounded-lg shadow-lg w-full max-w-sm p-5">' +
             '<p id="confirm-message" class="mb-4"></p>' +
             '<div class="flex justify-end gap-2">' +
-              '<button type="button" data-modal-close class="border rounded px-3 py-1.5">Cancel</button>' +
-              '<button type="button" id="confirm-ok" class="bg-red-600 text-white rounded px-3 py-1.5 hover:bg-red-700">Confirm</button>' +
+              '<button type="button" data-modal-close class="bg-slate-100 text-slate-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-slate-200">Cancel</button>' +
+              '<button type="button" id="confirm-ok" class="bg-red-100 text-red-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-red-200">Confirm</button>' +
             "</div>" +
           "</div>" +
         "</div>"
@@ -106,13 +106,15 @@
     openModal("#confirm-modal");
   }
 
-  // Shared styling so every table action renders as a real button.
-  var BTN_BASE = "inline-flex items-center px-2.5 py-1 mr-1 text-xs font-medium rounded border ";
+  // Shared styling so every table action renders as a real button — compact and
+  // light colour-filled.
+  var BTN_BASE = "inline-flex items-center gap-1 px-2 py-0.5 mr-1 text-xs font-medium rounded ";
   var BTN_VARIANT = {
-    default: "border-slate-300 text-slate-700 hover:bg-slate-100",
-    danger: "border-red-300 text-red-700 hover:bg-red-50",
-    warn: "border-amber-300 text-amber-700 hover:bg-amber-50",
-    success: "border-green-300 text-green-700 hover:bg-green-50",
+    default: "bg-slate-100 text-slate-700 hover:bg-slate-200",
+    primary: "bg-blue-100 text-blue-700 hover:bg-blue-200",
+    danger: "bg-red-100 text-red-700 hover:bg-red-200",
+    warn: "bg-amber-100 text-amber-700 hover:bg-amber-200",
+    success: "bg-green-100 text-green-700 hover:bg-green-200",
   };
 
   function attrString(attrs) {
@@ -193,7 +195,7 @@
   // { prev: 'id="prev"', page: 'id="page-info"', next: 'id="next"' } or the
   // data-attribute variants used by the in-memory tables.
   var PAGER_WRAP = "flex items-center justify-end gap-1 mt-3 text-sm";
-  var PAGER_BTN = "px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 " +
+  var PAGER_BTN = "px-2 py-0.5 text-xs rounded-md border border-slate-300 bg-white text-slate-700 " +
     "hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white";
   var PAGER_INFO = "px-3 text-slate-500 tabular-nums";
   function paginationControls(ids) {

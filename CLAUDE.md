@@ -19,7 +19,10 @@ as tables and a connection graph.
 
 ## Layout
 - `src/main.rs` — entrypoint only (config → services → serve).
-- `src/config.rs` — `Config::load(EnvSource)`; env behind `EnvSource` trait.
+- `src/config.rs` — layered config: optional `config.yaml` (`ConfigLoader`
+  over `FileSystem`+`EnvSource`; binary-adjacent default, `--config-file` flag,
+  `${VAR}`/`${VAR:-default}` interpolation) with precedence env > file > default.
+  `RedisConfig`, `AuthProvider`, `log_level`; env-only `Config::load(EnvSource)`.
 - `src/db/` — `Database` enum (pg/sqlite pools), `RepoError`, `to_sqlite`
   placeholder translator, `migrate` (idempotent embedded-migration applier).
 - `src/store.rs` — engine-dispatching factories returning `Arc<dyn Repo>` for
@@ -40,21 +43,56 @@ as tables and a connection graph.
   kinds" / "Properties"; routes in `routes/analysis_config.rs`. Every entity
   table carries a `metadata` JSONB/TEXT column.
 - `src/auth/` — `LoginStrategy`/`StaticAdminStrategy`, `PasswordHasher` +
-  `SecretGenerator` traits, `AuthService`, session `require_auth` middleware.
+  `SecretGenerator` traits, `AuthService` (ordered strategies; admin default,
+  GitHub appended when `auth.provider=github`), session `require_auth` middleware.
+  `github` (`GitHubIdentity` trait + `HttpGitHubIdentity` over `HttpClient`;
+  `GitHubLoginStrategy` for the personal-token form path; `authorize` org/login
+  allowlist). OAuth web flow (`/auth/github/login` + `/auth/github/callback`) in
+  `routes/auth.rs` using `AppState::github_auth`.
 - `src/web/` — `TemplateEngine` (embedded minijinja) + `render_page`.
 - `src/crypto.rs` — `Encryptor` trait + `AesGcmEncryptor` (secrets at rest).
 - `src/httpclient.rs` — `HttpClient` trait + `ReqwestClient`, `ThrottledHttpClient`
   (min-interval throttle), `HttpResponse` (with headers). Git providers throttle
   via this and map 429 / rate-limit headers to `ProviderError::RateLimited`
   (→ `AppError::RateLimited`).
-- `src/fs.rs` — `FileSystem` trait + `RealFileSystem`.
-- `src/process.rs` — `CommandRunner` trait + `TokioCommandRunner`.
+- `src/fs.rs` — `FileSystem` trait (`list_subdirs`/`list_files`/`read_to_string`/
+  `create_dir_all`/`exists`) + `RealFileSystem`.
+- `src/files/` — `FileBrowser` (lazy one-level tree + size-capped file reads over
+  `FileSystem`) + `safe_join` (path-traversal guard) for the File Explorer.
+- `src/process.rs` — `CommandRunner` trait + `TokioCommandRunner` (`CommandSpec`
+  carries an optional `cwd`).
 - `src/ai/` — AI agent profiles: `provider` (`AiProvider` trait), `anthropic`
-  (Messages API over `HttpClient`), `claude_cli` (over `CommandRunner`),
-  `factory` (`AiProviderFactory`/`AiProviderDeps`), `repository`, `service`
+  (Messages API over `HttpClient`), `claude_cli` (over `CommandRunner`; runs in
+  `AiRequest.working_dir` so it can read a checkout), `factory`
+  (`AiProviderFactory`/`AiProviderDeps`), `repository`, `service`
   (`AiProfileService`). Default model `claude-opus-4-8`.
-- `src/git.rs` — `GitClient` trait + `Git2Client` (clone/fetch).
-- `src/workspace.rs` — `Workspace` (per-job dirs over `FileSystem`).
+- `src/locks/` — `DistributedLock` trait (named lock + TTL + refresh): `InMemoryLock`
+  (default), SQL-backed `Pg/SqliteSqlLock` over `controller_locks`, and `RedisLock`
+  (over a mockable `RedisClient`; `SET NX PX` + token-checked Lua refresh/release,
+  selected when `redis.enabled`); `lock_keys` helpers. Backend chosen in
+  `store::distributed_lock`. Used for controller leader election + per-job/per-repo
+  serialisation.
+- `src/git.rs` — `GitClient` trait + `Git2Client` (`clone_or_update`; `sync_branch`
+  = fetch + hard-reset the working tree to `origin/<branch>`).
+- `src/workspace.rs` — `Workspace` (per-job dirs `{root}/jobs/{name}/{id}` via
+  `JobLocator`, persisted across runs) over `FileSystem`.
+- `src/hints/` — per-entity LLM hints: `model`, dual-engine `EntityHintRepository`
+  (keyed by `application_id`+`entity_type`+natural `entity_key`; survive re-sync),
+  `render_hints` (prompt block injected into analysis as authoritative corrections).
+- `src/agent_tasks/` — application **AI Agent** change tasks (job type
+  `application-agent-task`): `model` (`AgentTask`/`AgentTaskMessage` + statuses),
+  dual-engine `AgentTaskRepository` (tasks + transcript), `job` (`AgentTaskJob` —
+  per-repo-locked turn: sync default branch → create `agent/<id>` branch → run the
+  agentic Claude CLI over the checkout → `commit_all` → `push_branch` → open/update
+  a PR via `AccountService::open_pull_request`; no-change runs go `awaiting_input`).
+  Routes under `/api/platform/applications/:id/agent-tasks` in `routes/platform.rs`;
+  UI tab `assets/platform-app-agent.js`. `GitClient` gains
+  `create_branch`/`commit_all`/`push_branch`; `RepositoryProvider` gains
+  `open_pull_request`/`get_pull_request` (GitHub impl, `Unsupported` default).
+- `src/llm_request/` — `LlmRepositoryRequestJob` (job type `llm-repository-request`):
+  clones/fetch-rebases a repo and runs an LLM session over the checkout, serialised
+  by a per-repository lock; records full I/O + tokens; answer in execution metadata.
+  `ensure_job` seeds the singleton job that backs application Q&A.
 - `src/repositories/` — cloned-repo records: `RepoRecord`,
   `RepoRecordRepository`.
 - `src/review/` — `ReviewRepositoriesJob` (job type `sync-repositories`):
@@ -102,14 +140,28 @@ as tables and a connection graph.
   wide modal with Sequence + Component mermaid diagrams; the analyzer always
   emits both per use case), conditional per-relation tables, and an
   always-present Members tab. Diagrams have zoom/reset controls; wheel-zoom off.
-- `src/jobs/` — jobs subsystem: `model`, `repository` (jobs + executions),
-  `job_type` (`JobType` trait + `JobTypeRegistry`; `JobContext` exposes
-  `state`/`save_state`/`pause_requested`), `runner` (`JobRunner` — status
-  lifecycle, pause/resume; `JobOutcome::Completed|Paused`), `scheduler`
-  (`CronScheduler`), `leader` (`LeaderLock` distributed lock), `controller`
-  (`JobController` — leader-elected loop that resumes paused executions whose
-  `resume_at` elapsed), `builtin` (`NoopJob`). Executions carry
-  `state`/`resume_at`/`pause_requested`. Job types register in `AppState::build`;
+- `src/jobs/` — jobs subsystem: `model` (`ExecStatus` incl. `Skipped`;
+  `JobError::Failed|CannotRun{retry_at}`; `merge_object` JSON helper),
+  `repository` (jobs + executions; `list_due`/`set_next_run_at`,
+  `merge_metadata`, params on `create`; `heartbeat`/`list_stale`/`cancel`),
+  `job_type` (`JobType` trait + `JobTypeRegistry`; `JobContext` carries
+  `job_id`/`job_name`/`params`/`clock` and exposes `append_output`/
+  `merge_metadata`/`recording_provider`/`save_state`/`pause_requested`/
+  `heartbeat`/`heartbeat_guard`; `HeartbeatGuard` background ticker), `runner`
+  (`JobRunner` — status lifecycle, pause/resume, `start_with_params`, reschedule
+  on `CannotRun` → `Skipped`; holds a background `HeartbeatGuard` for every
+  execution so a long-but-healthy job is never cancelled mid-run; guards terminal
+  marking so a stale-cancelled run isn't overwritten; `ExecutionRun`), `recording`
+  (`RecordingAiProvider` — mirrors
+  LLM I/O to the execution output + token usage to metadata), `scheduler`
+  (`CronScheduler`), `controller` (`JobController` — leader-elected loop, via
+  `DistributedLock`, that resumes due paused executions, starts jobs whose
+  `next_run_at` elapsed, and `cancel_stale`s running executions whose
+  `heartbeat_at` is >5 min old), `builtin` (`NoopJob`). Jobs carry `next_run_at`;
+  executions carry `state`/`resume_at`/`pause_requested`/`params`/`metadata`/
+  `heartbeat_at`. The runner heartbeats each execution in the background for its
+  whole run, so staleness only catches executions whose worker has died (its
+  heartbeat task can no longer beat). Job types register in `AppState::build`;
   the controller is spawned in `main`.
 - `src/accounts/` — repository accounts: `model`, `repository`
   (`RepositoryAccountRepository`), `providers` (github/gitlab/local +
@@ -136,3 +188,6 @@ as tables and a connection graph.
 - Build/test: `cargo build`, `cargo test` (integration tests need Docker).
 - DB up + migrate: `bin/up.sh migrate` (profile `migrate` runs dbmate).
 - New migration: `dbmate new <name>` (keep `migrate:down` empty).
+- Docker topologies: `bin/up.sh single` (one app, SQLite) or `bin/up.sh
+  distributed` (app1+app2+nginx+Postgres+Redis). `Dockerfile` (multi-stage),
+  `docker-compose.{single,distributed}.yml`, `deploy/{single,distributed}/`.

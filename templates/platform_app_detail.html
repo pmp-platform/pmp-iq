@@ -1,15 +1,35 @@
 {% extends "base.html" %}
 {% block title %}Application · Platform Inspector{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="/assets/vendor/codemirror.min.css?v={{ asset_version }}">
+<style>
+  .v-code .CodeMirror { height: 100%; font-size: 12px; }
+  .md-body h1 { font-size: 1.5rem; font-weight: 700; margin: .6rem 0; }
+  .md-body h2 { font-size: 1.25rem; font-weight: 700; margin: .5rem 0; }
+  .md-body h3 { font-size: 1.1rem; font-weight: 600; margin: .4rem 0; }
+  .md-body p { margin: .5rem 0; }
+  .md-body ul { list-style: disc; padding-left: 1.4rem; margin: .4rem 0; }
+  .md-body ol { list-style: decimal; padding-left: 1.4rem; margin: .4rem 0; }
+  .md-body code { background: #f1f5f9; padding: 0 .25rem; border-radius: .2rem; font-family: monospace; }
+  .md-body pre { background: #0f172a; color: #e2e8f0; padding: .75rem; border-radius: .4rem; overflow: auto; }
+  .md-body pre code { background: transparent; color: inherit; padding: 0; }
+  .md-body a { color: #2563eb; text-decoration: underline; }
+  .md-body table { border-collapse: collapse; margin: .5rem 0; }
+  .md-body th, .md-body td { border: 1px solid #e2e8f0; padding: .25rem .5rem; }
+  .md-body blockquote { border-left: 3px solid #cbd5e1; padding-left: .75rem; color: #475569; }
+</style>
 {% include "_platform_tabs.html" %}
-<nav class="flex items-center gap-2 text-sm mt-3 mb-1" aria-label="Breadcrumb">
+<nav class="flex items-center gap-2 text-sm mt-3 mb-4 bg-white border border-slate-200 rounded-lg shadow-sm px-3 py-2" aria-label="Breadcrumb">
   <a href="/platform" class="text-slate-500 hover:text-slate-800">Platform</a>
   <span class="text-slate-300">/</span>
   <a href="/platform/applications" class="text-slate-500 hover:text-slate-800">Applications</a>
   <span class="text-slate-300">/</span>
   <span class="font-medium text-slate-800 truncate max-w-[20rem]" id="crumb-current" aria-current="page">…</span>
 </nav>
-<h1 class="text-2xl font-bold mb-3" id="detail-title">Loading…</h1>
+<div class="flex items-center justify-between gap-3 mb-3">
+  <h1 class="text-2xl font-bold" id="detail-title">Loading…</h1>
+  <div id="app-actions" class="flex items-center gap-2"></div>
+</div>
 
 <div id="app-detail"></div>
 
@@ -32,4 +52,11 @@
 <script src="/assets/vendor/mermaid.min.js?v={{ asset_version }}" defer></script>
 <script src="/assets/vendor/g6.min.js?v={{ asset_version }}" defer></script>
 <script src="/assets/platform-app-detail.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-app-ask.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-app-hints.js?v={{ asset_version }}" defer></script>
+<script src="/assets/vendor/codemirror.min.js?v={{ asset_version }}" defer></script>
+<script src="/assets/vendor/codemirror-modes.min.js?v={{ asset_version }}" defer></script>
+<script src="/assets/vendor/marked.min.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-app-files.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-app-agent.js?v={{ asset_version }}" defer></script>
 {% endblock %}

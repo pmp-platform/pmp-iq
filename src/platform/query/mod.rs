@@ -135,6 +135,10 @@ pub trait PlatformQuery: Send + Sync {
     /// Snapshot of known entity names a dependency can target (applications +
     /// every linked entity), for canonicalizing dependency targets.
     async fn catalog(&self) -> RepoResult<crate::platform::catalog::Catalog>;
+    /// The repository record id backing an application (for LLM Q&A), if linked.
+    async fn application_repository(&self, app_id: Uuid) -> RepoResult<Option<Uuid>>;
+    /// The application id backing a repository (to load its hints on re-sync).
+    async fn repository_application(&self, repository_id: Uuid) -> RepoResult<Option<Uuid>>;
 }
 
 /// Recognised platform entity names (for routing/validation).

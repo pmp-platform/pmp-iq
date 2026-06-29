@@ -30,10 +30,14 @@ pub fn build_state_db(db: Database) -> AppState {
         .with("ADMIN_PASS", "admin")
         .with("WORKSPACE_DIR", &workspace);
     let config = Config::load(&env).unwrap();
-    let boot =
-        AuthService::from_config(&config.auth, Arc::new(Argon2Hasher), &RandomSecretGenerator)
-            .unwrap();
-    AppState::build(config, db, Arc::new(boot.service)).unwrap()
+    let boot = AuthService::from_config(
+        &config.auth,
+        Arc::new(Argon2Hasher),
+        &RandomSecretGenerator,
+        None,
+    )
+    .unwrap();
+    AppState::build(config, db, Arc::new(boot.service), None).unwrap()
 }
 
 /// Build application state backed by the Postgres test container.

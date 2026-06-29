@@ -1,6 +1,9 @@
 //! GitHub repository provider.
 
-use super::{ProviderError, RepoMember, RepositoryProvider, retry_at_from_headers};
+use super::{
+    ProviderError, PullRequest, PullRequestSpec, RepoMember, RepositoryProvider,
+    retry_at_from_headers,
+};
 use crate::accounts::model::RemoteRepo;
 use crate::httpclient::{HttpClient, HttpRequest, HttpResponse};
 use async_trait::async_trait;
@@ -29,6 +32,23 @@ struct GhCollaborator {
     permissions: Option<Value>,
 }
 
+#[derive(Deserialize)]
+struct GhPull {
+    number: u64,
+    html_url: String,
+    state: String,
+}
+
+impl From<GhPull> for PullRequest {
+    fn from(p: GhPull) -> Self {
+        PullRequest {
+            number: p.number,
+            url: p.html_url,
+            state: p.state,
+        }
+    }
+}
+
 /// Lists repositories visible to a GitHub token.
 pub struct GitHubProvider {
     http: Arc<dyn HttpClient>,
@@ -47,13 +67,36 @@ impl GitHubProvider {
     }
 
     fn request(&self, url: &str) -> HttpRequest {
-        let mut req = HttpRequest::get(url)
+        self.authed(HttpRequest::get(url))
+    }
+
+    /// Apply the standard GitHub headers + bearer auth to any request.
+    fn authed(&self, req: HttpRequest) -> HttpRequest {
+        let mut req = req
             .header("User-Agent", "platform-inspector")
             .header("Accept", "application/vnd.github+json");
         if let Some(token) = &self.token {
             req = req.header("Authorization", format!("Bearer {token}"));
         }
         req
+    }
+
+    /// Find the open PR for `spec`'s head branch, if one already exists.
+    async fn find_open_pr(&self, spec: &PullRequestSpec) -> Result<Option<PullRequest>, ProviderError> {
+        let owner = spec.repo_full_name.split('/').next().unwrap_or_default();
+        let url = format!(
+            "{}/repos/{}/pulls?state=open&head={}:{}",
+            self.base_url, spec.repo_full_name, owner, spec.head_branch
+        );
+        let resp = self
+            .http
+            .send(self.authed(HttpRequest::get(&url)))
+            .await
+            .map_err(|e| ProviderError::Request(e.to_string()))?;
+        Self::check_status(&resp)?;
+        let pulls: Vec<GhPull> =
+            serde_json::from_str(&resp.body).map_err(|e| ProviderError::Parse(e.to_string()))?;
+        Ok(pulls.into_iter().next().map(PullRequest::from))
     }
 
     fn check_status(resp: &HttpResponse) -> Result<(), ProviderError> {
@@ -135,6 +178,48 @@ impl RepositoryProvider for GitHubProvider {
         }
         Ok(out)
     }
+
+    async fn open_pull_request(&self, spec: PullRequestSpec) -> Result<PullRequest, ProviderError> {
+        let url = format!("{}/repos/{}/pulls", self.base_url, spec.repo_full_name);
+        let body = json!({
+            "title": spec.title,
+            "head": spec.head_branch,
+            "base": spec.base_branch,
+            "body": spec.body,
+        });
+        let resp = self
+            .http
+            .send(self.authed(HttpRequest::post(&url, body.to_string())))
+            .await
+            .map_err(|e| ProviderError::Request(e.to_string()))?;
+        // 422 typically means a PR already exists for this head branch.
+        if resp.status == 422 {
+            if let Some(existing) = self.find_open_pr(&spec).await? {
+                return Ok(existing);
+            }
+        }
+        Self::check_status(&resp)?;
+        let pr: GhPull =
+            serde_json::from_str(&resp.body).map_err(|e| ProviderError::Parse(e.to_string()))?;
+        Ok(pr.into())
+    }
+
+    async fn get_pull_request(
+        &self,
+        repo_full_name: &str,
+        number: u64,
+    ) -> Result<PullRequest, ProviderError> {
+        let url = format!("{}/repos/{}/pulls/{number}", self.base_url, repo_full_name);
+        let resp = self
+            .http
+            .send(self.request(&url))
+            .await
+            .map_err(|e| ProviderError::Request(e.to_string()))?;
+        Self::check_status(&resp)?;
+        let pr: GhPull =
+            serde_json::from_str(&resp.body).map_err(|e| ProviderError::Parse(e.to_string()))?;
+        Ok(pr.into())
+    }
 }
 
 #[cfg(test)]
@@ -208,6 +293,49 @@ mod tests {
             .returning(|_| Ok(ok("[]")));
         let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), Some("  ".into()));
         assert!(provider.list_repositories().await.is_ok());
+    }
+
+    fn pr_spec() -> PullRequestSpec {
+        PullRequestSpec {
+            repo_full_name: "org/api".into(),
+            head_branch: "agent/x".into(),
+            base_branch: "main".into(),
+            title: "Add endpoint".into(),
+            body: "body".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn opens_pull_request() {
+        let mut http = MockHttpClient::new();
+        http.expect_send()
+            .withf(|r| r.method == "POST" && r.url.ends_with("/repos/org/api/pulls"))
+            .returning(|_| {
+                Ok(ok(
+                    r#"{"number":7,"html_url":"https://github.com/org/api/pull/7","state":"open"}"#,
+                ))
+            });
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let pr = provider.open_pull_request(pr_spec()).await.unwrap();
+        assert_eq!(pr.number, 7);
+        assert_eq!(pr.url, "https://github.com/org/api/pull/7");
+    }
+
+    #[tokio::test]
+    async fn open_pr_reuses_existing_on_conflict() {
+        let mut http = MockHttpClient::new();
+        http.expect_send().returning(|req| {
+            if req.method == "POST" {
+                Ok(HttpResponse::new(422, r#"{"message":"already exists"}"#))
+            } else {
+                Ok(ok(
+                    r#"[{"number":3,"html_url":"https://github.com/org/api/pull/3","state":"open"}]"#,
+                ))
+            }
+        });
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let pr = provider.open_pull_request(pr_spec()).await.unwrap();
+        assert_eq!(pr.number, 3);
     }
 
     #[tokio::test]

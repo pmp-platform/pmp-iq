@@ -1,0 +1,42 @@
+# Platform Inspector — example configuration file.
+#
+# Copy to `config.yaml` next to the binary (or pass `--config-file <path>`).
+# The file is OPTIONAL: with no file present the app uses environment variables
+# and built-in defaults. Every value can pull from the environment with
+# `${VAR}` or `${VAR:-default}`. Precedence is: process env var > file > default.
+
+server:
+  bind_address: 0.0.0.0
+  port: 8080
+  assets_dir: assets
+
+database:
+  # Engine is inferred from the URL scheme: postgres:// → Postgres, else SQLite.
+  url: "${DATABASE_URL:-sqlite://platform_inspector.db?mode=rwc}"
+  max_connections: 10
+
+# Redis is disabled by default. Enable it to back the distributed lock across
+# multiple app instances (otherwise the SQL-backed lock is used).
+redis:
+  enabled: false
+  url: "${REDIS_URL:-redis://localhost:6379}"
+
+auth:
+  provider: admin            # admin (default) | github
+  admin_user: "${ADMIN_USER:-admin}"
+  admin_pass: "${ADMIN_PASS}"        # leave unset to auto-generate at boot
+  session_secret: "${SESSION_SECRET}"
+  encryption_key: "${ENCRYPTION_KEY}"  # base64, 32 bytes once decoded
+  # github:                  # used when provider: github (see milestone 21)
+  #   mode: oauth_app        # oauth_app | personal_token
+  #   client_id: "${GITHUB_CLIENT_ID}"
+  #   client_secret: "${GITHUB_CLIENT_SECRET}"
+  #   redirect_url: "http://localhost:8080/auth/github/callback"
+  #   allowed_orgs: ["my-org"]
+  #   allowed_logins: ["alice"]
+
+log:
+  level: info                # RUST_LOG still wins when set
+
+workspace_dir: tmp/workspace
+git_min_interval_ms: 250

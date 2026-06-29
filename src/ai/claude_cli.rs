@@ -94,6 +94,8 @@ impl AiProvider for ClaudeCliProvider {
             args: self.build_args(&request),
             stdin: None,
             env: self.env(),
+            // Run inside the repository checkout so the agent can read its files.
+            cwd: request.working_dir.clone(),
         };
         let output = self
             .runner
@@ -115,6 +117,7 @@ impl AiProvider for ClaudeCliProvider {
             args: vec!["--version".to_string()],
             stdin: None,
             env: self.env(),
+            cwd: None,
         };
         let output = self
             .runner

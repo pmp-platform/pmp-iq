@@ -2,4 +2,4 @@
 
 pub mod job;
 
-pub use job::{JOB_TYPE, ReviewDeps, ReviewRepositoriesJob};
+pub use job::{JOB_TYPE, ReviewDeps, ReviewRepositoriesJob, ensure_sync_job};

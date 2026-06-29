@@ -2,7 +2,7 @@
 {% block title %}Detail · Platform Inspector{% endblock %}
 {% block content %}
 {% include "_platform_tabs.html" %}
-<nav class="flex items-center gap-2 text-sm mt-3 mb-1" aria-label="Breadcrumb">
+<nav class="flex items-center gap-2 text-sm mt-3 mb-4 bg-white border border-slate-200 rounded-lg shadow-sm px-3 py-2" aria-label="Breadcrumb">
   <a href="/platform" class="text-slate-500 hover:text-slate-800">Platform</a>
   <span class="text-slate-300">/</span>
   <a href="/platform/{{ entity }}" class="text-slate-500 hover:text-slate-800 capitalize">{{ entity }}</a>

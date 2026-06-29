@@ -2,14 +2,28 @@
 {% block title %}Execution · Platform Inspector{% endblock %}
 {% block content %}
 <a href="/jobs" class="text-sm text-blue-600">&larr; Back to jobs</a>
-<h1 class="text-2xl font-bold my-3">Execution</h1>
+<div class="flex items-center justify-between my-3 gap-3">
+  <h1 class="text-2xl font-bold">Execution</h1>
+  <button type="button" id="exec-more"
+    class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">More Details</button>
+</div>
 
 <div class="bg-white rounded-lg shadow border border-slate-200 p-4 mb-4" id="execution-summary">
   <div class="text-sm text-slate-500">Loading…</div>
 </div>
 
-<h2 class="text-lg font-semibold mb-2">Logs</h2>
-<pre class="bg-slate-900 text-slate-100 rounded-lg p-4 text-xs overflow-auto" id="execution-logs"></pre>
+<h2 class="text-lg font-semibold mb-2">Output</h2>
+<pre class="bg-slate-900 text-slate-100 rounded-lg p-4 text-xs overflow-auto whitespace-pre-wrap break-words" id="execution-logs"></pre>
+
+<div id="exec-modal" class="modal hidden fixed inset-0 bg-black/40 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-lg shadow-lg w-[90vw] max-w-3xl max-h-[90vh] flex flex-col">
+    <div class="flex items-center justify-between p-4 border-b border-slate-200">
+      <h3 class="text-lg font-semibold">Execution details</h3>
+      <button type="button" data-modal-close class="text-2xl leading-none text-slate-400 hover:text-slate-700">&times;</button>
+    </div>
+    <div id="exec-modal-body" class="p-4 overflow-auto space-y-3"></div>
+  </div>
+</div>
 
 <script id="execution-id" type="application/json">"{{ execution_id }}"</script>
 <script src="/assets/job-detail.js?v={{ asset_version }}" defer></script>

@@ -30,6 +30,9 @@ pub struct AiProfileInput {
 pub struct AiRequest {
     pub system: Option<String>,
     pub prompt: String,
+    /// Directory the provider should run in (agentic providers read it; the
+    /// HTTP API provider ignores it).
+    pub working_dir: Option<String>,
 }
 
 impl AiRequest {
@@ -37,11 +40,17 @@ impl AiRequest {
         Self {
             system: None,
             prompt: prompt.into(),
+            working_dir: None,
         }
     }
 
     pub fn with_system(mut self, system: impl Into<String>) -> Self {
         self.system = Some(system.into());
+        self
+    }
+
+    pub fn with_working_dir(mut self, dir: impl Into<String>) -> Self {
+        self.working_dir = Some(dir.into());
         self
     }
 }

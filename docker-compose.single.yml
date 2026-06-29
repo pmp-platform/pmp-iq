@@ -1,0 +1,18 @@
+# Single-instance topology: one app container on SQLite, no dependencies.
+#   bin/up.sh single      (or: docker compose -f docker-compose.single.yml up --build)
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Passed through from the host when set; otherwise dev defaults apply.
+      - ENCRYPTION_KEY
+      - SESSION_SECRET
+    volumes:
+      - app_data:/data
+      - ./deploy/single/config.yaml:/app/config.yaml:ro
+    command: ["--config-file", "/app/config.yaml"]
+
+volumes:
+  app_data:

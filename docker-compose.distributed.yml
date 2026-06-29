@@ -1,0 +1,72 @@
+# Distributed topology: two app instances behind nginx, sharing Postgres + Redis.
+#   bin/up.sh distributed   (or: docker compose -f docker-compose.distributed.yml up --build)
+# Used to exercise distributed behaviour: a single controller leader, locks that
+# serialise work across instances, and one shared platform model.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: platform_inspector
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot schema migration; the app instances wait for it to complete.
+  dbmate:
+    image: amacneil/dbmate:2.28.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/platform_inspector?sslmode=disable
+    volumes:
+      - ./db:/db
+    command: ["--no-dump-schema", "up"]
+
+  app1: &app
+    build: .
+    environment:
+      # Must be identical across instances (shared decryption + session cookies).
+      - ENCRYPTION_KEY
+      - SESSION_SECRET
+    volumes:
+      - ./deploy/distributed/config.yaml:/app/config.yaml:ro
+      - workspace_data:/data
+    command: ["--config-file", "/app/config.yaml"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      dbmate:
+        condition: service_completed_successfully
+
+  app2: *app
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./deploy/distributed/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app1
+      - app2
+
+volumes:
+  db_data:
+  workspace_data:

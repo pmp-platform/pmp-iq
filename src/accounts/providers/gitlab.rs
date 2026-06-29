@@ -118,4 +118,36 @@ mod tests {
         assert_eq!(repos[0].full_name, "grp/api");
         assert!(repos[0].private);
     }
+
+    #[tokio::test]
+    async fn validate_succeeds_on_200() {
+        let mut http = MockHttpClient::new();
+        http.expect_send().returning(|_| Ok(HttpResponse::new(200, "{}")));
+        let provider = GitLabProvider::new(Arc::new(http), Some("t".into()), None);
+        assert!(provider.validate().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn unauthorized_maps_to_auth_and_blank_base_url_falls_back() {
+        let mut http = MockHttpClient::new();
+        http.expect_send()
+            .withf(|req| req.url.starts_with("https://gitlab.com/"))
+            .returning(|_| Ok(HttpResponse::new(401, "")));
+        // A blank base URL falls back to the default API host.
+        let provider = GitLabProvider::new(Arc::new(http), None, Some("  ".into()));
+        assert!(matches!(provider.validate().await, Err(ProviderError::Auth)));
+    }
+
+    #[tokio::test]
+    async fn rate_limited_and_server_errors_map() {
+        let mut http = MockHttpClient::new();
+        http.expect_send().returning(|_| Ok(HttpResponse::new(429, "")));
+        let provider = GitLabProvider::new(Arc::new(http), Some("t".into()), None);
+        assert!(matches!(provider.validate().await, Err(ProviderError::RateLimited { .. })));
+
+        let mut http2 = MockHttpClient::new();
+        http2.expect_send().returning(|_| Ok(HttpResponse::new(500, "")));
+        let provider2 = GitLabProvider::new(Arc::new(http2), Some("t".into()), None);
+        assert!(matches!(provider2.validate().await, Err(ProviderError::Request(_))));
+    }
 }

@@ -4,6 +4,7 @@
 //! integration test suite can build and exercise the app.
 
 pub mod accounts;
+pub mod agent_tasks;
 pub mod ai;
 pub mod analysis_config;
 pub mod app;
@@ -13,10 +14,14 @@ pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod error;
+pub mod files;
 pub mod fs;
 pub mod git;
+pub mod hints;
 pub mod httpclient;
 pub mod jobs;
+pub mod llm_request;
+pub mod locks;
 pub mod platform;
 pub mod process;
 pub mod repositories;

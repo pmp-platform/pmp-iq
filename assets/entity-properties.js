@@ -62,7 +62,7 @@
         '<input data-prop-name placeholder="Friendly name" class="border rounded px-2 py-1 text-sm w-44" />' +
         '<input data-prop-desc placeholder="Description" class="border rounded px-2 py-1 text-sm w-56" />' +
         '<select data-prop-type class="border rounded px-2 py-1 text-sm">' + typeOptions() + "</select>" +
-        '<button type="button" data-add class="border rounded px-2 py-1 text-sm">Add</button>' +
+        '<button type="button" data-add class="bg-blue-100 text-blue-700 rounded px-3 py-1 text-sm font-medium hover:bg-blue-200">Add</button>' +
       "</div></div>";
   }
 

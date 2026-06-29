@@ -41,6 +41,8 @@ pub enum ExecStatus {
     Succeeded,
     Failed,
     Cancelled,
+    /// The job declined to run now and was rescheduled (not an error).
+    Skipped,
 }
 
 impl ExecStatus {
@@ -52,6 +54,7 @@ impl ExecStatus {
             ExecStatus::Succeeded => "succeeded",
             ExecStatus::Failed => "failed",
             ExecStatus::Cancelled => "cancelled",
+            ExecStatus::Skipped => "skipped",
         }
     }
 
@@ -63,6 +66,7 @@ impl ExecStatus {
             "succeeded" => Ok(ExecStatus::Succeeded),
             "failed" => Ok(ExecStatus::Failed),
             "cancelled" => Ok(ExecStatus::Cancelled),
+            "skipped" => Ok(ExecStatus::Skipped),
             other => Err(format!("unknown status '{other}'")),
         }
     }
@@ -78,6 +82,8 @@ pub struct Job {
     pub cron_expr: Option<String>,
     pub config: Value,
     pub enabled: bool,
+    /// When the scheduler should next run this job (UTC); `None` = not scheduled.
+    pub next_run_at: Option<DateTime<Utc>>,
 }
 
 /// Fields needed to create/update a job.
@@ -89,6 +95,7 @@ pub struct JobInput {
     pub cron_expr: Option<String>,
     pub config: Value,
     pub enabled: bool,
+    pub next_run_at: Option<DateTime<Utc>>,
 }
 
 /// A job execution record.
@@ -109,6 +116,12 @@ pub struct JobExecution {
     pub resume_at: Option<DateTime<Utc>>,
     /// Cooperative manual-pause signal polled by a running job.
     pub pause_requested: bool,
+    /// Per-execution input (e.g. an ad-hoc LLM question).
+    pub params: Value,
+    /// Structured metadata the job updates while running / returns when done.
+    pub metadata: Value,
+    /// Last liveness heartbeat from the running job (null until it starts).
+    pub heartbeat_at: Option<DateTime<Utc>>,
 }
 
 /// Mutable fields applied to an execution as it progresses.
@@ -119,6 +132,7 @@ pub struct ExecutionUpdate {
     pub finished_at: Option<DateTime<Utc>>,
     pub summary: Option<Value>,
     pub error: Option<String>,
+    pub heartbeat_at: Option<DateTime<Utc>>,
 }
 
 /// Outcome of a job run: either completed with a summary, or paused with a
@@ -144,6 +158,24 @@ impl JobOutcome {
 pub enum JobError {
     #[error("job failed: {0}")]
     Failed(String),
+    /// The job could not run now (e.g. it couldn't take its lock). The runner
+    /// reschedules it (at `retry_at`, or `now + 5m`) rather than marking it
+    /// failed.
+    #[error("job cannot run now")]
+    CannotRun { retry_at: Option<DateTime<Utc>> },
+}
+
+/// Deep-merge `patch` into `base` (object keys merged recursively; non-object
+/// values replaced). Used for incremental execution metadata updates.
+pub fn merge_object(base: &mut Value, patch: &Value) {
+    match (base, patch) {
+        (Value::Object(b), Value::Object(p)) => {
+            for (key, value) in p {
+                merge_object(b.entry(key.clone()).or_insert(Value::Null), value);
+            }
+        }
+        (base, patch) => *base = patch.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -152,10 +184,18 @@ mod tests {
 
     #[test]
     fn status_round_trips() {
-        for s in ["queued", "running", "succeeded", "failed", "cancelled"] {
+        for s in ["queued", "running", "paused", "succeeded", "failed", "cancelled", "skipped"] {
             assert_eq!(ExecStatus::parse(s).unwrap().as_str(), s);
         }
         assert!(ExecStatus::parse("bogus").is_err());
+    }
+
+    #[test]
+    fn merge_object_deep_merges_and_replaces_leaves() {
+        use serde_json::json;
+        let mut base = json!({ "llm": { "calls": 1 }, "keep": true });
+        merge_object(&mut base, &json!({ "llm": { "calls": 2, "tokens": 10 } }));
+        assert_eq!(base, json!({ "llm": { "calls": 2, "tokens": 10 }, "keep": true }));
     }
 
     #[test]

@@ -1,18 +1,23 @@
 //! Application wiring: shared state and HTTP router construction.
 
 use crate::accounts::{AccountService, ProviderDeps};
+use crate::agent_tasks::repository::AgentTaskRepository;
+use crate::agent_tasks::{AgentTaskDeps, AgentTaskJob};
 use crate::ai::{AiProfileService, AiProviderDeps};
 use crate::analysis_config::AnalysisConfigService;
-use crate::auth::AuthService;
-use crate::config::Config;
+use crate::auth::{AuthService, GitHubIdentity};
+use crate::config::{AuthProvider, Config, GitHubAuthConfig};
 use crate::crypto::AesGcmEncryptor;
 use crate::db::Database;
 use crate::error::AppError;
 use crate::fs::RealFileSystem;
 use crate::git::Git2Client;
+use crate::hints::EntityHintRepository;
 use crate::httpclient::{HttpClient, ReqwestClient, ThrottledHttpClient};
 use crate::jobs::repository::{JobExecutionRepository, JobRepository};
 use crate::jobs::{JobRunner, JobTypeRegistry, NoopJob, RunnerDeps, SystemClock};
+use crate::llm_request::{LlmRepositoryRequestJob, LlmRequestDeps};
+use crate::locks::DistributedLock;
 use crate::platform::graph::GraphQuery;
 use crate::platform::query::PlatformQuery;
 use crate::platform::FileAnalyzer;
@@ -26,6 +31,14 @@ use crate::workspace::Workspace;
 use axum::Router;
 use std::sync::Arc;
 
+/// GitHub authentication state for the OAuth web-flow routes (M21). Present only
+/// when `auth.provider` is `github` and an identity client was configured.
+#[derive(Clone)]
+pub struct GitHubAuthState {
+    pub identity: Arc<dyn GitHubIdentity>,
+    pub config: GitHubAuthConfig,
+}
+
 /// Shared, cheaply-cloneable application state handed to every handler.
 #[derive(Clone)]
 pub struct AppState {
@@ -33,6 +46,7 @@ pub struct AppState {
     pub db: Database,
     pub engine: TemplateEngine,
     pub auth: Arc<AuthService>,
+    pub github_auth: Option<GitHubAuthState>,
     pub deps: ProviderDeps,
     pub accounts: AccountService,
     pub ai_deps: AiProviderDeps,
@@ -45,15 +59,30 @@ pub struct AppState {
     pub repo_records: Arc<dyn RepoRecordRepository>,
     pub platform: Arc<dyn PlatformQuery>,
     pub graph: Arc<dyn GraphQuery>,
+    pub lock: Arc<dyn DistributedLock>,
+    pub hints: Arc<dyn EntityHintRepository>,
+    pub agent_tasks: Arc<dyn AgentTaskRepository>,
 }
 
 impl AppState {
     /// Build application state, constructing infrastructure services. Fails if
     /// the encryption key is invalid. The concrete Postgres or SQLite
     /// repository implementations are chosen from `db`'s engine.
-    pub fn build(config: Config, db: Database, auth: Arc<AuthService>) -> Result<Self, AppError> {
+    pub fn build(
+        config: Config,
+        db: Database,
+        auth: Arc<AuthService>,
+        github_identity: Option<Arc<dyn GitHubIdentity>>,
+    ) -> Result<Self, AppError> {
         let encryptor = AesGcmEncryptor::from_base64(&config.auth.encryption_key)
             .map_err(|e| AppError::internal(format!("invalid ENCRYPTION_KEY: {e}")))?;
+        let github_auth = match (config.auth.provider, &config.auth.github, &github_identity) {
+            (AuthProvider::Github, Some(gh), Some(identity)) => Some(GitHubAuthState {
+                identity: identity.clone(),
+                config: gh.clone(),
+            }),
+            _ => None,
+        };
         let raw_http: Arc<dyn HttpClient> = Arc::new(ReqwestClient::new());
         // Git-provider calls are throttled to stay under API rate limits.
         let throttled_http: Arc<dyn HttpClient> = Arc::new(ThrottledHttpClient::new(
@@ -81,23 +110,49 @@ impl AppState {
         let jobs_repo = store::jobs(&db);
         let executions_repo = store::job_executions(&db);
         let repo_records = store::repo_records(&db);
+        let lock = store::distributed_lock(&db, &config.redis)?;
+        let hints = store::entity_hints(&db);
+        let agent_tasks = store::agent_tasks(&db);
         let workspace = Workspace::new(Arc::new(RealFileSystem), config.workspace_dir.clone());
         let review_job = ReviewRepositoriesJob::new(ReviewDeps {
             accounts: accounts.clone(),
             repositories: repo_records.clone(),
             git: Arc::new(Git2Client),
-            workspace,
+            workspace: workspace.clone(),
             analyzer: Arc::new(FileAnalyzer::new(Arc::new(RealFileSystem))),
             writer: store::platform_writer(&db),
             platform: store::platform_query(&db),
             ai: ai.clone(),
             ai_deps: ai_deps.clone(),
             analysis_config: analysis_config.clone(),
+            lock: lock.clone(),
+            hints: hints.clone(),
+        });
+        let llm_job = LlmRepositoryRequestJob::new(LlmRequestDeps {
+            accounts: accounts.clone(),
+            repositories: repo_records.clone(),
+            git: Arc::new(Git2Client),
+            workspace: workspace.clone(),
+            ai: ai.clone(),
+            ai_deps: ai_deps.clone(),
+            lock: lock.clone(),
+        });
+        let agent_job = AgentTaskJob::new(AgentTaskDeps {
+            tasks: agent_tasks.clone(),
+            accounts: accounts.clone(),
+            repositories: repo_records.clone(),
+            git: Arc::new(Git2Client),
+            workspace,
+            ai: ai.clone(),
+            ai_deps: ai_deps.clone(),
+            lock: lock.clone(),
         });
 
         let mut registry = JobTypeRegistry::new();
         registry.register(Arc::new(NoopJob));
         registry.register(Arc::new(review_job));
+        registry.register(Arc::new(llm_job));
+        registry.register(Arc::new(agent_job));
         let registry = Arc::new(registry);
         let runner = Arc::new(JobRunner::new(RunnerDeps {
             jobs: jobs_repo.clone(),
@@ -116,6 +171,7 @@ impl AppState {
             db,
             engine: TemplateEngine::with_version(asset_version),
             auth,
+            github_auth,
             deps,
             accounts,
             ai_deps,
@@ -128,6 +184,9 @@ impl AppState {
             repo_records,
             platform,
             graph,
+            lock,
+            hints,
+            agent_tasks,
         })
     }
 }

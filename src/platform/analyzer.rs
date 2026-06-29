@@ -25,9 +25,9 @@ shape: {\"application\":{\"name\":string,\"app_type\":string,\"description\":str
 \"users\":[{\"username\":string,\"email\":string,\"groups\":[string],\"metadata\":object}],\
 \"groups\":[{\"name\":string,\"metadata\":object}],\
 \"access\":[{\"principal_type\":\"user\"|\"group\",\"principal_name\":string,\"access_level\":string}],\
-\"components\":[{\"name\":string,\"kind\":string,\"description\":string,\"metadata\":object,\
+\"components\":[{\"name\":string,\"kind\":string,\"description\":string,\"metadata\":object,\"files\":[string],\
 \"observability_signals\":[{\"name\":string,\"kind\":string,\"description\":string,\"metadata\":object}]}],\
-\"use_cases\":[{\"name\":string,\"description\":string,\"metadata\":object,\"components\":[string],\
+\"use_cases\":[{\"name\":string,\"description\":string,\"metadata\":object,\"components\":[string],\"files\":[string],\
 \"diagrams\":[{\"name\":string,\"kind\":string,\"description\":string,\"content\":string,\"metadata\":object}]}]}. \
 Use empty arrays when unknown. \
 Classify each discovered dependency into exactly one array: \
@@ -55,7 +55,9 @@ the involved components by their exact 'name', and ALWAYS include at least these
 tracing the interaction between the actors and the involved components for this use case; and (2) a \
 component diagram with 'kind' set to \"component\" whose 'content' is a mermaid flowchart/graph showing \
 the involved components and how they connect. Each diagram's 'content' MUST be valid mermaid source that \
-renders standalone (no markdown fences), and its 'kind' names the mermaid diagram type.";
+renders standalone (no markdown fences), and its 'kind' names the mermaid diagram type. \
+For every component and every use case, set 'files' to the list of repository-relative paths (e.g. \
+\"src/auth/login.rs\") it is implemented in or affects; use an empty array when unknown.";
 
 /// Files to look for when building analysis context.
 const SIGNAL_FILES: &[&str] = &[
@@ -85,6 +87,9 @@ pub struct AnalysisInput<'a> {
     pub provider: &'a dyn AiProvider,
     /// User-configured allowed kinds + properties to inject into the prompt.
     pub config: AnalysisConfig,
+    /// User-provided per-entity hints (authoritative corrections) for the
+    /// application this repository maps to; empty on a first sync.
+    pub hints: Vec<crate::hints::EntityHint>,
 }
 
 /// The prompt field that carries the kind for an entity type.
@@ -211,7 +216,8 @@ impl FileAnalyzer {
 impl RepositoryAnalyzer for FileAnalyzer {
     async fn analyze(&self, input: AnalysisInput<'_>) -> Result<AnalysisResult, AnalysisError> {
         let context = self.gather_context(&input.checkout_path);
-        let prompt = Self::build_prompt(&input.repo_full_name, &context);
+        let mut prompt = Self::build_prompt(&input.repo_full_name, &context);
+        prompt.push_str(&crate::hints::render_hints(&input.hints));
         let system = build_system_prompt(&input.config);
 
         let mut last_error = String::new();
@@ -294,6 +300,7 @@ mod tests {
             repo_full_name: "org/api".into(),
             provider: &provider,
             config: AnalysisConfig::default(),
+            hints: vec![],
         };
         let result = analyzer.analyze(input).await.unwrap();
         assert_eq!(result.application.name, "api");
@@ -313,6 +320,7 @@ mod tests {
             repo_full_name: "org/api".into(),
             provider: &provider,
             config: AnalysisConfig::default(),
+            hints: vec![],
         };
         assert!(matches!(analyzer.analyze(input).await, Err(AnalysisError::Invalid(_))));
     }

@@ -28,6 +28,17 @@ explicit acceptance criteria. Implement them in order.
 | 09 | [milestone-09-platform-tables.md](milestone-09-platform-tables.md) | Platform section — tables, filters & detail pages |
 | 10 | [milestone-10-platform-graph.md](milestone-10-platform-graph.md) | Platform section — connection graph |
 | 11 | [milestone-11-hardening-and-docs.md](milestone-11-hardening-and-docs.md) | Hardening, testing & documentation |
+| 12 | [milestone-12-distributed-locks.md](milestone-12-distributed-locks.md) | Distributed locks abstraction |
+| 13 | [milestone-13-job-scheduling-workspaces-and-live-updates.md](milestone-13-job-scheduling-workspaces-and-live-updates.md) | Job scheduling, per-job workspaces & live updates |
+| 14 | [milestone-14-llm-repository-request-job.md](milestone-14-llm-repository-request-job.md) | `llm-repository-request` job type |
+| 15 | [milestone-15-application-llm-qa.md](milestone-15-application-llm-qa.md) | Application Q&A — ask the LLM |
+| 16 | [milestone-16-llm-hints-for-application-entities.md](milestone-16-llm-hints-for-application-entities.md) | LLM hints for application entities |
+| 17 | [milestone-17-file-attribution-and-explorer.md](milestone-17-file-attribution-and-explorer.md) | Use-case/component file attribution & File Explorer |
+| 18 | [milestone-18-config-file.md](milestone-18-config-file.md) | Optional `config.yaml` configuration file |
+| 19 | [milestone-19-redis-distributed-lock.md](milestone-19-redis-distributed-lock.md) | Redis distributed-lock backend |
+| 20 | [milestone-20-docker-compose-topologies.md](milestone-20-docker-compose-topologies.md) | Docker Compose topologies (single & distributed) |
+| 21 | [milestone-21-github-login.md](milestone-21-github-login.md) | GitHub login (GitHub App / personal token) |
+| 22 | [milestone-22-application-ai-agent-tasks.md](milestone-22-application-ai-agent-tasks.md) | Application "AI Agent" tab — change tasks & PRs |
 
 ## Architecture at a glance
 

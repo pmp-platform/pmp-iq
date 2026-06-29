@@ -27,6 +27,24 @@ pub struct RepoMember {
     pub permissions: Value,
 }
 
+/// A pull request as created/looked up via a provider.
+#[derive(Debug, Clone)]
+pub struct PullRequest {
+    pub number: u64,
+    pub url: String,
+    pub state: String,
+}
+
+/// Parameters to open a pull request.
+#[derive(Debug, Clone)]
+pub struct PullRequestSpec {
+    pub repo_full_name: String,
+    pub head_branch: String,
+    pub base_branch: String,
+    pub title: String,
+    pub body: String,
+}
+
 /// Errors raised by repository providers.
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
@@ -40,6 +58,8 @@ pub enum ProviderError {
     Parse(String),
     #[error("misconfigured account: {0}")]
     Config(String),
+    #[error("operation not supported by this provider")]
+    Unsupported,
 }
 
 impl From<ProviderError> for crate::error::AppError {
@@ -79,5 +99,73 @@ pub trait RepositoryProvider: Send + Sync {
     /// member concept (e.g. local) inherit this empty default.
     async fn list_members(&self, _repo_full_name: &str) -> Result<Vec<RepoMember>, ProviderError> {
         Ok(Vec::new())
+    }
+
+    /// Open a pull request (or return the existing open one for the same head
+    /// branch). Providers that cannot open PRs inherit the `Unsupported` default.
+    async fn open_pull_request(&self, _spec: PullRequestSpec) -> Result<PullRequest, ProviderError> {
+        Err(ProviderError::Unsupported)
+    }
+
+    /// Look up a pull request by number.
+    async fn get_pull_request(
+        &self,
+        _repo_full_name: &str,
+        _number: u64,
+    ) -> Result<PullRequest, ProviderError> {
+        Err(ProviderError::Unsupported)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fs::MockFileSystem;
+    use crate::httpclient::HttpResponse;
+    use std::sync::Arc;
+
+    fn resp_with(header: &str, value: &str) -> HttpResponse {
+        let mut resp = HttpResponse::new(429, "");
+        resp.headers.insert(header.into(), value.into());
+        resp
+    }
+
+    #[test]
+    fn retry_at_from_relative_and_absolute_headers() {
+        assert!(retry_at_from_headers(&resp_with("retry-after", "30")).is_some());
+        assert!(retry_at_from_headers(&resp_with("x-ratelimit-reset", "1893456000")).is_some());
+        assert!(retry_at_from_headers(&resp_with("ratelimit-reset", "1893456000")).is_some());
+        assert!(retry_at_from_headers(&HttpResponse::new(429, "")).is_none());
+    }
+
+    #[tokio::test]
+    async fn pr_operations_default_to_unsupported() {
+        let provider = LocalProvider::new(Arc::new(MockFileSystem::new()), "/repos".into());
+        let spec = PullRequestSpec {
+            repo_full_name: "org/api".into(),
+            head_branch: "h".into(),
+            base_branch: "b".into(),
+            title: "t".into(),
+            body: String::new(),
+        };
+        assert!(matches!(
+            provider.open_pull_request(spec).await,
+            Err(ProviderError::Unsupported)
+        ));
+        assert!(matches!(
+            provider.get_pull_request("org/api", 1).await,
+            Err(ProviderError::Unsupported)
+        ));
+    }
+
+    #[test]
+    fn provider_error_maps_to_app_error() {
+        use crate::error::AppError;
+        assert!(matches!(AppError::from(ProviderError::Auth), AppError::BadRequest(_)));
+        assert!(matches!(AppError::from(ProviderError::Unsupported), AppError::BadRequest(_)));
+        assert!(matches!(
+            AppError::from(ProviderError::RateLimited { retry_at: None }),
+            AppError::RateLimited { .. }
+        ));
     }
 }
