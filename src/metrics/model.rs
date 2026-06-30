@@ -27,5 +27,7 @@ pub struct ApplicationMetric {
     pub value: f64,
     pub unit: Option<String>,
     pub source: String,
+    /// Theme the metric belongs to (M33), stamped from the registry at write time.
+    pub category: String,
     pub collected_at: DateTime<Utc>,
 }

@@ -96,6 +96,8 @@ async fn metrics_repository_records_and_reads_latest() {
     let cov = latest.iter().find(|m| m.metric_key == "coverage_pct").unwrap();
     assert_eq!(cov.value, 83.5);
     assert_eq!(cov.unit.as_deref(), Some("percent"));
+    // M33: the category is stamped from the registry at write time.
+    assert_eq!(cov.category, "code_health");
 
     let all = repo.latest_all().await.unwrap();
     assert!(all.iter().any(|m| m.metric_key == "loc" && m.value == 21450.0));

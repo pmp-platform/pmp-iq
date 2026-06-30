@@ -97,8 +97,12 @@ of the code.
 - **LLM hints** — free-text corrections scoped to an entity type or a specific
   entity, keyed by natural name so they survive re-syncs and are injected into
   the analysis prompt as authoritative corrections.
-- **Quality metrics** — an LLM extracts tests/coverage/complexity/LOC/CI signals
-  per repository; history is kept and feeds the dashboard.
+- **Quality metrics** — an LLM extracts categorised signals per repository across
+  **code health** (tests/coverage/complexity/LOC/CI, duplication, lint, TODOs, doc
+  coverage, convention compliance) and **security/supply chain** (vulnerabilities,
+  outdated/secret deps), complemented by **derived** architecture and
+  model-coverage metrics computed from the platform model (no LLM). History is kept
+  and feeds the dashboard; the per-app Insights panel groups metrics by category.
 - **Ask the platform** — a natural-language question answered against a
   serialised snapshot of the whole catalog (the model is forbidden from
   inventing data).

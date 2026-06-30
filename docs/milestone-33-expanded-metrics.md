@@ -27,18 +27,19 @@ without changing the store or the read layer.
 
 ### Metric registry
 
-A static, code-owned registry (one definition per metric) consumed by the job
-(which prompts to collect) and the read/UI layer (which labels/ranks):
+A static, code-owned registry — the single source of truth mapping each metric
+**key** to its **category** (`src/metrics/registry.rs`). The repository stamps
+every row's category from here at write time, so the Insights panel and dashboard
+group/theme metrics without per-metric UI code:
 
 ```rust
-pub struct MetricDef {
-    pub key: &'static str,        // e.g. "vuln_critical"
-    pub label: &'static str,      // "Critical vulnerabilities"
-    pub unit: Option<&'static str>,
-    pub category: MetricCategory, // CodeHealth | Security | Delivery | Ownership | Architecture | ModelCoverage
-    pub higher_is_better: bool,   // drives leaderboard ordering
-}
+pub enum MetricCategory { CodeHealth, Security, Delivery, Ownership, Architecture, ModelCoverage, General }
+pub fn category_for(key: &str) -> MetricCategory;   // defaults to General for unregistered keys
 ```
+
+(Ranking metadata — friendly labels and `higher_is_better` for leaderboards —
+lands with the charts/leaderboards work in M35, keeping this registry to exactly
+what M33 uses.)
 
 ### Expanded LLM metric set (collected for now)
 

@@ -608,16 +608,38 @@
         $("#metrics-collect").prop("disabled", on);
         $("#metrics-note").text(on ? (note || "Collecting… refresh in a moment.") : "");
       }
+      // Metrics are grouped by category (M33). Labels + a preferred section order;
+      // any unknown category falls to the end under its raw key.
+      var CATEGORY_LABELS = {
+        code_health: "Code health", security: "Security & supply chain",
+        architecture: "Architecture", model_coverage: "Model coverage",
+        delivery: "Delivery", ownership: "Ownership", general: "Other"
+      };
+      var CATEGORY_ORDER = ["code_health", "security", "architecture", "model_coverage", "delivery", "ownership", "general"];
+      function esc(s) { return $("<span>").text(s == null ? "" : s).html(); }
+      function metricRow(m) {
+        var badge = m.source === "derived"
+          ? ' <span class="text-[10px] uppercase tracking-wide text-slate-400">derived</span>' : '';
+        return '<tr><td class="pr-4 py-0.5 font-mono">' + esc(m.metric_key) + '</td><td class="py-0.5">' +
+          m.value + (m.unit ? ' <span class="text-slate-400">' + esc(m.unit) + '</span>' : '') + badge + "</td></tr>";
+      }
+      function renderMetrics(ms) {
+        var byCat = {};
+        ms.forEach(function (m) { var c = m.category || "general"; (byCat[c] = byCat[c] || []).push(m); });
+        var cats = CATEGORY_ORDER.filter(function (c) { return byCat[c]; });
+        Object.keys(byCat).forEach(function (c) { if (cats.indexOf(c) < 0) { cats.push(c); } });
+        return cats.map(function (c) {
+          var rows = byCat[c].map(metricRow).join("");
+          return '<div class="mb-3"><div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">' +
+            esc(CATEGORY_LABELS[c] || c) + '</div><table class="w-full text-sm">' + rows + "</table></div>";
+        }).join("");
+      }
       function load() {
         $.ajax({ url: base, dataType: "json", global: false }).done(function (r) {
           setCollecting(!!r.collecting);
           var ms = r.metrics || [];
           if (!ms.length) { $("#metrics-body").html('<div class="text-slate-400">No metrics yet. Click Collect to gather them from CI + the codebase.</div>'); return; }
-          var rows = ms.map(function (m) {
-            return '<tr><td class="pr-4 py-0.5 font-mono">' + m.metric_key + '</td><td class="py-0.5">' +
-              m.value + (m.unit ? ' <span class="text-slate-400">' + m.unit + '</span>' : '') + "</td></tr>";
-          }).join("");
-          $("#metrics-body").html('<table class="w-full">' + rows + "</table>");
+          $("#metrics-body").html(renderMetrics(ms));
         });
       }
       $("#metrics-collect").on("click", function () {

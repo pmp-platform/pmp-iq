@@ -120,16 +120,25 @@ as tables and a connection graph.
   (top/needs coverage, lowest/highest complexity), and group-by (coverage by
   type/language). Page `/platform/dashboard` (Insights tab) + `GET
   /api/platform/dashboard`; `assets/platform-dashboard.js`.
-- `src/metrics/` — **quality metrics** (M31): `model` (`Metric`/`ApplicationMetric`),
-  dual-engine `ApplicationMetricsRepository` (`record`/`latest_for_application`/
-  `latest_all`; history kept), `job` (`CollectMetricsJob`, type `collect-metrics`:
-  per-repo-locked clone → LLM extracts tests/coverage/complexity/LOC/has_ci from
-  CI + codebase → `parse_metrics` normalises, omitting nulls). Routes
+- `src/metrics/` — **quality metrics** (M31, expanded M33): `model`
+  (`Metric`/`ApplicationMetric` — carries a `category`), `registry`
+  (`MetricCategory` + `category_for(key)`: the single source of truth mapping each
+  key to a theme, stamped onto every row at write time), dual-engine
+  `ApplicationMetricsRepository` (`record`/`latest_for_application`/`latest_all`;
+  history kept; writes `category` via the registry), `job` (`CollectMetricsJob`,
+  type `collect-metrics`: per-repo-locked clone → multiple LLM `PASSES` over the
+  checkout — **code-health** (tests/coverage/complexity/LOC/CI + duplication/lint/
+  todo/doc/convention-compliance) and **security** (vuln counts/outdated deps/
+  secrets/…) — parsed generically by `parse_fields` (omit nulls), plus **derived**
+  metrics (`source=derived`, no LLM) computed by `derived_metrics` from
+  `platform.detail` (architecture fan-out/external + model-coverage component/
+  use-case/observability/diagram presence)). Routes
   `GET`/`POST /api/platform/applications/:id/metrics`; `GET` also returns
   `collecting` and `POST` is **deduped** — it won't enqueue a second collection
   while one is queued/running for the same application (returns the in-flight one
   with `already_running:true`), via `JobExecutionRepository::active_for_job`.
-  Insights tab on app detail disables Collect while one is in progress.
+  Insights tab on app detail groups metrics by category and disables Collect while
+  one is in progress.
 - `src/nl_query.rs` — **Ask the platform** (M26): `CatalogQuery` answers a
   natural-language question grounded in a serialised `GraphQuery` snapshot of the
   catalog (system prompt forbids inventing data). Route `POST /api/platform/ask`;

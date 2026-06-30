@@ -120,6 +120,7 @@ mod tests {
             value,
             unit: None,
             source: "llm".into(),
+            category: crate::metrics::category_for(key).as_str().into(),
             collected_at: Utc::now(),
         }
     }

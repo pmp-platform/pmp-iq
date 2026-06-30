@@ -1,6 +1,7 @@
 //! Dual-engine persistence for application quality metrics.
 
 use super::model::{ApplicationMetric, Metric};
+use super::registry::category_for;
 use crate::db::{RepoResult, identity, to_sqlite};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -27,6 +28,7 @@ struct Row {
     value: f64,
     unit: Option<String>,
     source: String,
+    category: String,
     collected_at: DateTime<Utc>,
 }
 
@@ -39,12 +41,13 @@ impl From<Row> for ApplicationMetric {
             value: r.value,
             unit: r.unit,
             source: r.source,
+            category: r.category,
             collected_at: r.collected_at,
         }
     }
 }
 
-const COLS: &str = "id, application_id, metric_key, value, unit, source, collected_at";
+const COLS: &str = "id, application_id, metric_key, value, unit, source, category, collected_at";
 /// Each row whose `collected_at` is the most recent for its (app, key).
 const LATEST_WHERE: &str = "collected_at = (SELECT MAX(collected_at) FROM application_metrics x \
      WHERE x.application_id = m.application_id AND x.metric_key = m.metric_key)";
@@ -70,8 +73,8 @@ macro_rules! metrics_impl {
                 for m in metrics {
                     sqlx::query(&$xform(
                         "INSERT INTO application_metrics \
-                           (id, application_id, metric_key, value, unit, source) \
-                         VALUES ($1,$2,$3,$4,$5,$6)",
+                           (id, application_id, metric_key, value, unit, source, category) \
+                         VALUES ($1,$2,$3,$4,$5,$6,$7)",
                     ))
                     .bind(Uuid::new_v4())
                     .bind(application_id)
@@ -79,6 +82,7 @@ macro_rules! metrics_impl {
                     .bind(m.value)
                     .bind(m.unit.as_deref())
                     .bind(source)
+                    .bind(category_for(&m.key).as_str())
                     .execute(&self.pool)
                     .await?;
                 }
