@@ -8,12 +8,12 @@ use axum::http::Request;
 use axum::http::header::{CONTENT_TYPE, COOKIE};
 use common::{SqliteDb, build_state_sqlite, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platiq::ai::{AiProfileInput, AiProviderType};
-use platiq::app::build_router;
-use platiq::platform::AnalysisResult;
-use platiq::repositories::RepoRecordInput;
-use platiq::store;
+use pmp_iq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use pmp_iq::ai::{AiProfileInput, AiProviderType};
+use pmp_iq::app::build_router;
+use pmp_iq::platform::AnalysisResult;
+use pmp_iq::repositories::RepoRecordInput;
+use pmp_iq::store;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -24,7 +24,7 @@ const ANALYSIS: &str = r#"{
   "use_cases":[],"users":[],"groups":[],"access":[]
 }"#;
 
-async fn seed_app(db: &platiq::db::Database) {
+async fn seed_app(db: &pmp_iq::db::Database) {
     let account = store::accounts(db)
         .create(AccountInput {
             name: "gh".into(),

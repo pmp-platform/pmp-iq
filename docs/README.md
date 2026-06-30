@@ -1,6 +1,6 @@
-# PlatIQ — Milestones
+# pmp-iq — Milestones
 
-PlatIQ is a Rust 2024 web application that connects to one or more
+pmp-iq is a Rust 2024 web application that connects to one or more
 source-control accounts (GitHub, GitLab, or local repositories), clones the
 selected repositories, runs AI-driven analysis over them, and builds a queryable
 **platform model**: applications, the languages/libraries they use, the
@@ -49,6 +49,15 @@ explicit acceptance criteria. Implement them in order.
 | 30 | [milestone-30-batch-changes.md](milestone-30-batch-changes.md) | Batch changes — large-scale edits across many repos |
 | 31 | [milestone-31-quality-metrics.md](milestone-31-quality-metrics.md) | LLM-collected quality metrics (tests, coverage, complexity) |
 | 32 | [milestone-32-platform-dashboard.md](milestone-32-platform-dashboard.md) | Platform metrics & insights dashboard |
+| 33 | [milestone-33-expanded-metrics.md](milestone-33-expanded-metrics.md) | Expanded metrics catalog (LLM-sourced) |
+| 34 | [milestone-34-configurable-extraction-prompts.md](milestone-34-configurable-extraction-prompts.md) | Configurable extraction prompts (per section, in Settings) |
+| 35 | [milestone-35-metric-trends-and-charts.md](milestone-35-metric-trends-and-charts.md) | Metric trends & charts |
+| 36 | [milestone-36-platform-diff-timeline-audit.md](milestone-36-platform-diff-timeline-audit.md) | Platform diff / timeline & audit |
+| 37 | [milestone-37-rbac-teams-multitenant.md](milestone-37-rbac-teams-multitenant.md) | RBAC, teams & multi-tenant |
+| 38 | [milestone-38-c4-container-component-levels.md](milestone-38-c4-container-component-levels.md) | C4 Container & Component levels |
+| 39 | [milestone-39-llm-cost-and-token-budgeting.md](milestone-39-llm-cost-and-token-budgeting.md) | LLM cost & token budgeting |
+| 40 | [milestone-40-semantic-search-and-duplicate-detection.md](milestone-40-semantic-search-and-duplicate-detection.md) | Semantic search & duplicate detection |
+| 41 | [milestone-41-incremental-analysis.md](milestone-41-incremental-analysis.md) | Incremental analysis |
 
 ## Architecture at a glance
 

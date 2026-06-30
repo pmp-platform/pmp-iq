@@ -9,13 +9,13 @@ use axum::body::Body;
 use axum::http::header::{CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE};
 use axum::http::{Request, StatusCode};
 use common::{SqliteDb, cookie_header, extract_cookies};
-use platiq::app::{AppState, build_router};
-use platiq::auth::{
+use pmp_iq::app::{AppState, build_router};
+use pmp_iq::auth::{
     Argon2Hasher, AuthError, AuthService, GitHubIdentity, GitHubUser, OAuthExchange,
     RandomSecretGenerator,
 };
-use platiq::config::{Config, MapEnv};
-use platiq::db::Database;
+use pmp_iq::config::{Config, MapEnv};
+use pmp_iq::db::Database;
 use std::sync::Arc;
 use tower::ServiceExt;
 

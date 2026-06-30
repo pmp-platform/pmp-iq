@@ -2,7 +2,7 @@
 //! git repository is discovered, cloned, and recorded.
 
 mod common;
-use platiq::store;
+use pmp_iq::store;
 
 use axum::body::Body;
 use axum::http::header::{CONTENT_TYPE, COOKIE};
@@ -10,7 +10,7 @@ use axum::http::{Method, Request, StatusCode};
 use axum::response::Response;
 use common::{TestDb, build_state, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platiq::app::build_router;
+use pmp_iq::app::build_router;
 use serde_json::{Value, json};
 use std::path::Path;
 use std::time::Duration;

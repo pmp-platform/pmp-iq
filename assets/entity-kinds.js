@@ -100,6 +100,9 @@
 
   $(function () {
     if (!$("#kinds-root").length) return;
+    $('<div class="flex justify-end mb-2"></div>')
+      .append(window.PI.refreshButton(load))
+      .insertBefore("#kinds-root");
     load();
 
     $("#kinds-root").on("click", "[data-add]", function () {

@@ -7,8 +7,8 @@ mod common;
 
 use chrono::{Duration, Utc};
 use common::SqliteDb;
-use platiq::jobs::model::{ExecStatus, ExecutionUpdate, JobInput, TriggerType};
-use platiq::store;
+use pmp_iq::jobs::model::{ExecStatus, ExecutionUpdate, JobInput, TriggerType};
+use pmp_iq::store;
 use serde_json::{Value, json};
 
 #[tokio::test]

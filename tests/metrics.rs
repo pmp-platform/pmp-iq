@@ -8,13 +8,13 @@ use axum::http::Request;
 use axum::http::header::COOKIE;
 use common::{SqliteDb, build_state_sqlite, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platiq::ai::{AiProfileInput, AiProviderType};
-use platiq::app::build_router;
-use platiq::metrics::Metric;
-use platiq::platform::AnalysisResult;
-use platiq::repositories::RepoRecordInput;
-use platiq::store;
+use pmp_iq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use pmp_iq::ai::{AiProfileInput, AiProviderType};
+use pmp_iq::app::build_router;
+use pmp_iq::metrics::Metric;
+use pmp_iq::platform::AnalysisResult;
+use pmp_iq::repositories::RepoRecordInput;
+use pmp_iq::store;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -26,7 +26,7 @@ const ANALYSIS: &str = r#"{
   "use_cases":[],"users":[],"groups":[],"access":[]
 }"#;
 
-async fn seed_app(db: &platiq::db::Database) -> Uuid {
+async fn seed_app(db: &pmp_iq::db::Database) -> Uuid {
     let account = store::accounts(db)
         .create(AccountInput {
             name: "gh".into(),
@@ -144,6 +144,59 @@ async fn collect_route_enqueues_and_get_returns_metrics() {
     let body: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["metrics"].as_array().unwrap().len(), 1);
     assert_eq!(body["metrics"][0]["metric_key"], "coverage_pct");
+}
+
+#[tokio::test]
+async fn collect_does_not_enqueue_duplicate_while_active() {
+    let sqlite = SqliteDb::start().await;
+    let app_id = seed_app(&sqlite.database()).await;
+    let app = build_router(build_state_sqlite(&sqlite));
+    let cookies = login_cookies(&app, "admin", "admin").await;
+
+    // Seed an in-flight (queued) metrics collection for this application.
+    let jobs = store::jobs(&sqlite.database());
+    let job_id = pmp_iq::metrics::ensure_job(jobs.as_ref()).await.unwrap();
+    let execs = store::job_executions(&sqlite.database());
+    let seeded = execs
+        .create(job_id, "metrics", &json!({ "application_id": app_id }))
+        .await
+        .unwrap();
+
+    // GET reports the collection as in progress.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/platform/applications/{app_id}/metrics"))
+                .header(COOKIE, cookie_header(&cookies))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["collecting"], true);
+
+    // POST returns the existing execution instead of enqueuing a duplicate.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/api/platform/applications/{app_id}/metrics"))
+                .header(COOKIE, cookie_header(&cookies))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["already_running"], true);
+    assert_eq!(body["execution_id"].as_str().unwrap(), seeded.id.to_string().as_str());
+
+    // Exactly one active execution — no duplicate was enqueued.
+    let active = execs.active_for_job(job_id).await.unwrap();
+    assert_eq!(active.len(), 1);
 }
 
 #[tokio::test]

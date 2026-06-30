@@ -8,13 +8,13 @@ use axum::http::Request;
 use axum::http::header::{CONTENT_TYPE, COOKIE};
 use common::{SqliteDb, build_state_sqlite, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platiq::agent_tasks::NewAgentTask;
-use platiq::ai::{AiProfileInput, AiProviderType};
-use platiq::app::build_router;
-use platiq::platform::AnalysisResult;
-use platiq::repositories::RepoRecordInput;
-use platiq::store;
+use pmp_iq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use pmp_iq::agent_tasks::NewAgentTask;
+use pmp_iq::ai::{AiProfileInput, AiProviderType};
+use pmp_iq::app::build_router;
+use pmp_iq::platform::AnalysisResult;
+use pmp_iq::repositories::RepoRecordInput;
+use pmp_iq::store;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -27,7 +27,7 @@ const ANALYSIS: &str = r#"{
 }"#;
 
 /// Seed an application (account + repo + analysis) and an enabled AI profile.
-async fn seed_app(db: &platiq::db::Database) -> Uuid {
+async fn seed_app(db: &pmp_iq::db::Database) -> Uuid {
     let account = store::accounts(db)
         .create(AccountInput {
             name: "gh".into(),
@@ -155,7 +155,7 @@ async fn post_message_enqueues_a_turn() {
         .unwrap();
     // Give the task one repository target so the message route enqueues a turn.
     store::agent_tasks(&db)
-        .create_target(platiq::agent_tasks::NewAgentTaskTarget {
+        .create_target(pmp_iq::agent_tasks::NewAgentTaskTarget {
             task_id: task.id,
             repository_id: Uuid::new_v4(),
             branch_name: task.branch_name.clone(),

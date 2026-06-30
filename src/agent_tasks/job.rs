@@ -218,8 +218,8 @@ impl AgentTaskJob {
             .commit_all(CommitRequest {
                 checkout: state.checkout.clone(),
                 message: format!("AI Agent: {}", state.task.title),
-                author_name: "PlatIQ Agent".to_string(),
-                author_email: "agent@platiq.local".to_string(),
+                author_name: "pmp-iq Agent".to_string(),
+                author_email: "agent@pmp-iq.local".to_string(),
             })
             .await
             .map_err(|e| JobError::Failed(e.to_string()))?;
@@ -417,7 +417,7 @@ fn agent_system(full_name: &str) -> String {
 }
 
 fn pr_body(summary: &str) -> String {
-    format!("Automated change by the PlatIQ AI Agent.\n\n{summary}")
+    format!("Automated change by the pmp-iq AI Agent.\n\n{summary}")
 }
 
 /// Find the singleton `application-agent-task` job, creating it if absent. The
@@ -570,7 +570,7 @@ mod tests {
     #[test]
     fn pr_body_wraps_summary() {
         assert!(pr_body("changed x").contains("changed x"));
-        assert!(pr_body("changed x").contains("PlatIQ AI Agent"));
+        assert!(pr_body("changed x").contains("pmp-iq AI Agent"));
     }
 
     fn target() -> AgentTaskTarget {

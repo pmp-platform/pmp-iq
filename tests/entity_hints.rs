@@ -5,11 +5,11 @@
 mod common;
 
 use common::SqliteDb;
-use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platiq::hints::EntityHintInput;
-use platiq::platform::AnalysisResult;
-use platiq::repositories::RepoRecordInput;
-use platiq::store;
+use pmp_iq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use pmp_iq::hints::EntityHintInput;
+use pmp_iq::platform::AnalysisResult;
+use pmp_iq::repositories::RepoRecordInput;
+use pmp_iq::store;
 
 const ANALYSIS: &str = r#"{
   "application": {"name":"api","app_type":"api","description":"d","primary_language":"Rust","metadata":{}},

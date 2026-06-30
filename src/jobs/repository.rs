@@ -47,6 +47,9 @@ pub trait JobExecutionRepository: Send + Sync {
     async fn list(&self, limit: i64) -> RepoResult<Vec<JobExecution>>;
     /// Recent executions of one job, newest first.
     async fn list_for_job(&self, job_id: Uuid, limit: i64) -> RepoResult<Vec<JobExecution>>;
+    /// In-flight (queued + running) executions of one job, newest first. Used to
+    /// dedupe per-target enqueues (e.g. one metrics collection per application).
+    async fn active_for_job(&self, job_id: Uuid) -> RepoResult<Vec<JobExecution>>;
     /// In-flight (queued + running) executions of a job.
     async fn count_running(&self, job_id: Uuid) -> RepoResult<i64>;
     /// Currently-running (not queued) executions of a job — a free slot exists
@@ -453,6 +456,17 @@ macro_rules! exec_repo_impl {
                 )))
                 .bind(job_id)
                 .bind(limit)
+                .fetch_all(&self.pool)
+                .await?;
+                rows.into_iter().map(JobExecution::try_from).collect()
+            }
+
+            async fn active_for_job(&self, job_id: Uuid) -> RepoResult<Vec<JobExecution>> {
+                let rows: Vec<ExecRow> = sqlx::query_as(&$xform(&format!(
+                    "SELECT {EXEC_COLS} FROM job_executions WHERE job_id=$1 \
+                     AND status IN ('queued','running') ORDER BY created_at DESC"
+                )))
+                .bind(job_id)
                 .fetch_all(&self.pool)
                 .await?;
                 rows.into_iter().map(JobExecution::try_from).collect()

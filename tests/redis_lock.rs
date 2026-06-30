@@ -1,9 +1,9 @@
 //! Integration test for the Redis distributed-lock backend against a real Redis
 //! container (exercises `RedisClientImpl` + `RedisLock` end to end).
 
-use platiq::jobs::SystemClock;
-use platiq::jobs::clock::Clock;
-use platiq::locks::{DistributedLock, LockError, RedisClientImpl, RedisLock};
+use pmp_iq::jobs::SystemClock;
+use pmp_iq::jobs::clock::Clock;
+use pmp_iq::locks::{DistributedLock, LockError, RedisClientImpl, RedisLock};
 use std::sync::Arc;
 use std::time::Duration;
 use testcontainers::runners::AsyncRunner;

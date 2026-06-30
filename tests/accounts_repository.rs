@@ -1,10 +1,10 @@
 //! Integration test for the repository-account data layer against PostgreSQL.
 
 mod common;
-use platiq::store;
+use pmp_iq::store;
 
 use common::TestDb;
-use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use pmp_iq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
 
 fn input(name: &str) -> AccountInput {
     AccountInput {

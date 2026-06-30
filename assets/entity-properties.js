@@ -97,6 +97,9 @@
 
   $(function () {
     if (!$("#properties-root").length) return;
+    $('<div class="flex justify-end mb-2"></div>')
+      .append(window.PI.refreshButton(load))
+      .insertBefore("#properties-root");
     load();
 
     $("#properties-root").on("click", "[data-add]", function () {

@@ -4,11 +4,11 @@
 
 mod common;
 use common::SqliteDb;
-use platiq::store;
+use pmp_iq::store;
 
-use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platiq::platform::{AnalysisResult, MemberInfo};
-use platiq::repositories::RepoRecordInput;
+use pmp_iq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use pmp_iq::platform::{AnalysisResult, MemberInfo};
+use pmp_iq::repositories::RepoRecordInput;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;

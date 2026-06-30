@@ -8,7 +8,7 @@ use axum::http::{Request, StatusCode};
 use axum::response::Response;
 use common::{TestDb, build_state, cookie_header, extract_cookies, extract_csrf};
 use http_body_util::BodyExt;
-use platiq::app::build_router;
+use pmp_iq::app::build_router;
 use tower::ServiceExt;
 use axum::Router;
 

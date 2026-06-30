@@ -3,6 +3,7 @@
 
 use super::analysis::{AnalysisConfig, AnalysisResult};
 use crate::ai::{AiProvider, AiRequest};
+use crate::files::safe_join;
 use crate::fs::FileSystem;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -210,6 +211,26 @@ impl FileAnalyzer {
             format!("Repository '{repo_full_name}'. Files:\n{context}")
         }
     }
+
+    /// Drop component/use-case file paths that don't resolve to a real file in
+    /// the checkout, so the UI never links to a missing file (the model may emit
+    /// repository-relative paths it didn't verify).
+    fn retain_existing_files(&self, result: &mut AnalysisResult, checkout_path: &str) {
+        for component in &mut result.components {
+            component.files.retain(|f| self.file_exists(checkout_path, f));
+        }
+        for use_case in &mut result.use_cases {
+            use_case.files.retain(|f| self.file_exists(checkout_path, f));
+        }
+    }
+
+    /// Whether a repository-relative path resolves to a real file in the checkout.
+    fn file_exists(&self, checkout_path: &str, rel: &str) -> bool {
+        match safe_join(checkout_path, rel) {
+            Ok(path) => self.fs.exists(&path),
+            Err(_) => false,
+        }
+    }
 }
 
 #[async_trait]
@@ -222,14 +243,21 @@ impl RepositoryAnalyzer for FileAnalyzer {
 
         let mut last_error = String::new();
         for attempt in 0..=MAX_RETRIES {
-            let request = AiRequest::new(prompt.clone()).with_system(system.clone());
+            // Run agentic providers (the Claude CLI) inside the checkout so they
+            // can read real files and cite real paths; the HTTP API ignores it.
+            let request = AiRequest::new(prompt.clone())
+                .with_system(system.clone())
+                .with_working_dir(input.checkout_path.clone());
             let response = input
                 .provider
                 .complete(request)
                 .await
                 .map_err(|e| AnalysisError::Ai(e.to_string()))?;
             match AnalysisResult::parse(&response.text) {
-                Ok(result) => return Ok(result),
+                Ok(mut result) => {
+                    self.retain_existing_files(&mut result, &input.checkout_path);
+                    return Ok(result);
+                }
                 Err(message) => {
                     last_error = message;
                     tracing::warn!(attempt, error = %last_error, "analysis parse failed");
@@ -304,6 +332,42 @@ mod tests {
         };
         let result = analyzer.analyze(input).await.unwrap();
         assert_eq!(result.application.name, "api");
+    }
+
+    #[tokio::test]
+    async fn drops_nonexistent_files_and_runs_in_checkout() {
+        let mut fs = MockFileSystem::new();
+        // gather_context probes manifests; none present here.
+        fs.expect_read_to_string().returning(|_| Ok(None));
+        // Only paths ending in "real.rs" actually exist in the checkout.
+        fs.expect_exists().returning(|p: &str| p.ends_with("real.rs"));
+        let analyzer = FileAnalyzer::new(Arc::new(fs));
+
+        let mut provider = MockAiProvider::new();
+        provider
+            .expect_complete()
+            // The agentic provider must run inside the checkout.
+            .withf(|req| req.working_dir.as_deref() == Some("/repo"))
+            .returning(|_| {
+                Ok(AiResponse {
+                    text: r#"{"application":{"name":"api","app_type":"api"},
+                        "components":[{"name":"C","files":["src/real.rs","src/ghost.rs"]}],
+                        "use_cases":[{"name":"U","files":["src/real.rs","missing.rs"]}]}"#
+                        .into(),
+                    input_tokens: None,
+                    output_tokens: None,
+                })
+            });
+        let input = AnalysisInput {
+            checkout_path: "/repo".into(),
+            repo_full_name: "org/api".into(),
+            provider: &provider,
+            config: AnalysisConfig::default(),
+            hints: vec![],
+        };
+        let result = analyzer.analyze(input).await.unwrap();
+        assert_eq!(result.components[0].files, vec!["src/real.rs".to_string()]);
+        assert_eq!(result.use_cases[0].files, vec!["src/real.rs".to_string()]);
     }
 
     #[tokio::test]

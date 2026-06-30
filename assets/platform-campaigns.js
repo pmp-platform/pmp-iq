@@ -77,6 +77,9 @@
 
   $(function () {
     $("#camp-create").on("click", create);
+    $('<div class="flex justify-end mb-2"></div>')
+      .append(window.PI.refreshButton(load))
+      .insertBefore("#camp-list");
     load();
   });
 })(jQuery);

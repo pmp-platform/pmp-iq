@@ -37,7 +37,7 @@ impl GitLabProvider {
     }
 
     fn request(&self, url: &str) -> HttpRequest {
-        let mut req = HttpRequest::get(url).header("User-Agent", "platiq");
+        let mut req = HttpRequest::get(url).header("User-Agent", "pmp-iq");
         if let Some(token) = &self.token {
             req = req.header("PRIVATE-TOKEN", token.clone());
         }

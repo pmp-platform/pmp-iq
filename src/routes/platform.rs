@@ -110,12 +110,10 @@ async fn sync_application(
 /// Pick the AI profile to answer with: the first enabled, else the first
 /// configured. Errors when none exist.
 async fn default_profile(state: &AppState) -> AppResult<Uuid> {
-    let profiles = state.ai.list().await?;
-    profiles
-        .iter()
-        .find(|p| p.enabled)
-        .or_else(|| profiles.first())
-        .map(|p| p.id)
+    state
+        .ai
+        .default_profile_id()
+        .await?
         .ok_or_else(|| AppError::BadRequest("no AI agent profile configured".into()))
 }
 
@@ -453,16 +451,36 @@ async fn codebase_map_api(
     Ok(Json(crate::codebase_map::build_map(&browser, &root)))
 }
 
-/// Latest quality metrics for an application (M31).
+/// The id of an in-flight (queued or running) metrics collection for this
+/// application, if any — used to avoid enqueuing a duplicate.
+async fn active_metrics_execution(
+    state: &AppState,
+    job_id: Uuid,
+    app_id: Uuid,
+) -> AppResult<Option<Uuid>> {
+    let active = state.executions_repo.active_for_job(job_id).await?;
+    let app = app_id.to_string();
+    Ok(active
+        .into_iter()
+        .find(|e| e.params.get("application_id").and_then(|v| v.as_str()) == Some(app.as_str()))
+        .map(|e| e.id))
+}
+
+/// Latest quality metrics for an application (M31). `collecting` is true while a
+/// collection for this application is already queued or running.
 async fn get_metrics(
     State(state): State<AppState>,
     Path(app_id): Path<Uuid>,
 ) -> AppResult<Json<Value>> {
     let metrics = state.metrics.latest_for_application(app_id).await?;
-    Ok(Json(json!({ "metrics": metrics })))
+    let job_id = crate::metrics::ensure_job(state.jobs_repo.as_ref()).await?;
+    let collecting = active_metrics_execution(&state, job_id, app_id).await?.is_some();
+    Ok(Json(json!({ "metrics": metrics, "collecting": collecting })))
 }
 
-/// Enqueue an LLM metrics-collection run for an application's repository.
+/// Enqueue an LLM metrics-collection run for an application's repository. If one
+/// is already queued/running for this application, returns it instead of
+/// enqueuing a duplicate (`already_running: true`).
 async fn collect_metrics(
     State(state): State<AppState>,
     Path(app_id): Path<Uuid>,
@@ -472,11 +490,14 @@ async fn collect_metrics(
         .application_repository(app_id)
         .await?
         .ok_or_else(|| AppError::BadRequest("application has no linked repository".into()))?;
-    let profile_id = default_profile(&state).await?;
     let job_id = crate::metrics::ensure_job(state.jobs_repo.as_ref()).await?;
+    if let Some(existing) = active_metrics_execution(&state, job_id, app_id).await? {
+        return Ok(Json(json!({ "execution_id": existing, "already_running": true })));
+    }
+    let profile_id = default_profile(&state).await?;
     let params = json!({ "application_id": app_id, "ai_profile_id": profile_id });
     let execution_id = state.runner.start_with_params(job_id, "metrics", params).await?;
-    Ok(Json(json!({ "execution_id": execution_id })))
+    Ok(Json(json!({ "execution_id": execution_id, "already_running": false })))
 }
 
 /// All hints configured for an application.
@@ -720,12 +741,21 @@ async fn c4_page(
     render_page(&state.engine, "c4.html", &page, context! { active_tab => "c4" })
 }
 
-/// C4 export: Structurizr DSL + C4 Mermaid for the whole platform.
-async fn c4_api(State(state): State<AppState>) -> AppResult<Json<Value>> {
+/// C4 export options: whether to include dependencies (external systems) or
+/// show applications only (the default).
+#[derive(Deserialize)]
+struct C4Query {
+    #[serde(default)]
+    dependencies: bool,
+}
+
+/// C4 export: Structurizr DSL + C4 Mermaid for the whole platform. Applications
+/// only by default; `?dependencies=true` adds the external systems they use.
+async fn c4_api(State(state): State<AppState>, Query(q): Query<C4Query>) -> AppResult<Json<Value>> {
     let graph = state.graph.build(&GraphScope::new(None, Some(800))).await?;
     Ok(Json(json!({
-        "dsl": crate::c4::structurizr_dsl(&graph),
-        "mermaid": crate::c4::mermaid_context(&graph),
+        "dsl": crate::c4::structurizr_dsl(&graph, q.dependencies),
+        "mermaid": crate::c4::mermaid_context(&graph, q.dependencies),
     })))
 }
 

@@ -4,8 +4,8 @@
 mod common;
 
 use common::TestDb;
-use platiq::agent_tasks::model::{NewAgentTask, NewMessage};
-use platiq::store;
+use pmp_iq::agent_tasks::model::{NewAgentTask, NewMessage};
+use pmp_iq::store;
 use uuid::Uuid;
 
 /// Insert a parent application (the FK on `agent_tasks.application_id`).

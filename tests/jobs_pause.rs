@@ -6,15 +6,15 @@ mod common;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, TimeZone, Utc};
 use common::SqliteDb;
-use platiq::db::Database;
-use platiq::jobs::clock::{Clock, SystemClock};
-use platiq::jobs::controller::{ControllerDeps, JobController};
-use platiq::jobs::job_type::{JobContext, JobType, JobTypeRegistry};
-use platiq::jobs::model::{ExecStatus, JobInput, JobOutcome, TriggerType};
-use platiq::jobs::runner::{JobRunner, RunnerDeps};
-use platiq::jobs::JobError;
-use platiq::locks::{DistributedLock, SqliteSqlLock};
-use platiq::store;
+use pmp_iq::db::Database;
+use pmp_iq::jobs::clock::{Clock, SystemClock};
+use pmp_iq::jobs::controller::{ControllerDeps, JobController};
+use pmp_iq::jobs::job_type::{JobContext, JobType, JobTypeRegistry};
+use pmp_iq::jobs::model::{ExecStatus, JobInput, JobOutcome, TriggerType};
+use pmp_iq::jobs::runner::{JobRunner, RunnerDeps};
+use pmp_iq::jobs::JobError;
+use pmp_iq::locks::{DistributedLock, SqliteSqlLock};
+use pmp_iq::store;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -123,7 +123,7 @@ async fn job_self_pauses_and_controller_resumes() {
             executions: store::job_executions(&db),
             lock: store::distributed_lock(
                 &db,
-                &platiq::config::RedisConfig {
+                &pmp_iq::config::RedisConfig {
                     enabled: false,
                     url: "redis://localhost:6379".into(),
                 },

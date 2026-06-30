@@ -1,16 +1,16 @@
 [package]
-name = "platiq"
+name = "pmp-iq"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-default-run = "platiq"
+default-run = "pmp-iq"
 
 [lib]
-name = "platiq"
+name = "pmp_iq"
 path = "src/lib.rs"
 
 [[bin]]
-name = "platiq"
+name = "pmp-iq"
 path = "src/main.rs"
 
 [dependencies]

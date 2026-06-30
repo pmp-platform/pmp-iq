@@ -21,7 +21,7 @@ use uuid::Uuid;
 pub const JOB_TYPE: &str = "pr-watcher";
 /// Prefix on the agent's own PR comments, used to dedup: when the latest comment
 /// is ours, the watcher has already acted on the current state.
-const AGENT_MARKER: &str = "🤖 PlatIQ:";
+const AGENT_MARKER: &str = "🤖 pmp-iq:";
 
 /// Dependencies for the watcher (bundled to bound parameter count).
 #[derive(Clone)]

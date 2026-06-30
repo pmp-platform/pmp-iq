@@ -39,7 +39,7 @@ A multi-stage build (no source in the final image):
 - **Runtime**: a slim base (e.g. `debian:bookworm-slim`), copy the release
   binary, the `assets/` and `db/` directories (embedded migrations already cover
   SQLite; `db/` is mounted for dbmate in the distributed topology), a non-root
-  user, `EXPOSE 8080`, entrypoint `platiq`.
+  user, `EXPOSE 8080`, entrypoint `pmp-iq`.
 - The image reads `config.yaml` (M18) from a mounted path or `--config-file`;
   secrets stay in the environment and are referenced via `${VAR}`.
 
@@ -62,7 +62,7 @@ volumes:
   app_data:
 ```
 
-`deploy/single/config.yaml` sets `database.url: sqlite:///data/platiq.db?mode=rwc`,
+`deploy/single/config.yaml` sets `database.url: sqlite:///data/pmp-iq.db?mode=rwc`,
 `workspace_dir: /data/workspace`, `redis.enabled: false`.
 
 ### Distributed topology

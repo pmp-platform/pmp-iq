@@ -58,6 +58,10 @@ impl ClaudeCliProvider {
             args.push("--model".to_string());
             args.push(model.clone());
         }
+        if let Some(effort) = &self.config.effort {
+            args.push("--effort".to_string());
+            args.push(effort.clone());
+        }
         if let Some(system) = &request.system {
             args.push("--append-system-prompt".to_string());
             args.push(system.clone());
@@ -162,6 +166,37 @@ mod tests {
         let out = provider.complete(AiRequest::new("hi")).await.unwrap();
         assert_eq!(out.text, "done");
         assert_eq!(out.input_tokens, Some(5));
+    }
+
+    #[tokio::test]
+    async fn effort_passed_as_flag_when_set() {
+        let mut runner = MockCommandRunner::new();
+        runner
+            .expect_run()
+            .withf(|spec| {
+                spec.args
+                    .windows(2)
+                    .any(|w| w[0] == "--effort" && w[1] == "xhigh")
+            })
+            .returning(|_| {
+                Ok(CommandOutput { status: 0, stdout: r#"{"result":"ok"}"#.into(), stderr: String::new() })
+            });
+        let cfg = ClaudeCliConfig { effort: Some("xhigh".into()), ..config() };
+        let provider = ClaudeCliProvider::new(Arc::new(runner), None, cfg);
+        assert!(provider.complete(AiRequest::new("hi")).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn no_effort_flag_when_absent() {
+        let mut runner = MockCommandRunner::new();
+        runner
+            .expect_run()
+            .withf(|spec| !spec.args.iter().any(|a| a == "--effort"))
+            .returning(|_| {
+                Ok(CommandOutput { status: 0, stdout: r#"{"result":"ok"}"#.into(), stderr: String::new() })
+            });
+        let provider = ClaudeCliProvider::new(Arc::new(runner), None, config());
+        assert!(provider.complete(AiRequest::new("hi")).await.is_ok());
     }
 
     #[tokio::test]

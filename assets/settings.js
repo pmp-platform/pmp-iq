@@ -133,6 +133,7 @@
     try { render(JSON.parse(initial)); } catch (e) { load(); }
 
     $("#add-account-btn").on("click", openAdd);
+    window.PI.refreshButton(load).insertBefore("#add-account-btn");
     $("#selection-mode").on("change", function () { updateSelectionUI($(this).val()); });
     $("#add-repo").on("click", function () { $("#repo-list").append(repoRow("")); });
     $("#repo-list").on("click", ".remove-repo", function () { $(this).closest("div").remove(); });

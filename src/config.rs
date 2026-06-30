@@ -284,7 +284,7 @@ fn resolve_bool(
 
 fn load_database(env: &dyn EnvSource, file: &FileDatabase) -> Result<DatabaseConfig, ConfigError> {
     // SQLite file in the working directory is the zero-config default.
-    let default_url = "sqlite://platiq.db?mode=rwc";
+    let default_url = "sqlite://pmp-iq.db?mode=rwc";
     Ok(DatabaseConfig {
         url: resolve_str(env, "DATABASE_URL", file.url.as_deref(), default_url),
         max_connections: resolve_u32(env, "DATABASE_MAX_CONNECTIONS", file.max_connections, 10)?,

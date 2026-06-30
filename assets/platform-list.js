@@ -101,6 +101,7 @@
     header();
     $("#pager").html(PI.paginationControls({ prev: 'id="prev"', page: 'id="page-info"', next: 'id="next"' }));
     buildFilters();
+    PI.refreshButton(load).insertAfter("#total");
     load();
     var t;
     $("#search").on("input", function () {

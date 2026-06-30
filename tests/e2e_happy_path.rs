@@ -12,7 +12,7 @@ use axum::routing::post;
 use axum::{Json, Router};
 use common::{TestDb, build_state, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platiq::app::build_router;
+use pmp_iq::app::build_router;
 use serde_json::{Value, json};
 use std::path::Path;
 use std::time::Duration;

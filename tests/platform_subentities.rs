@@ -5,11 +5,11 @@
 
 mod common;
 use common::SqliteDb;
-use platiq::store;
+use pmp_iq::store;
 
-use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platiq::platform::AnalysisResult;
-use platiq::repositories::RepoRecordInput;
+use pmp_iq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use pmp_iq::platform::AnalysisResult;
+use pmp_iq::repositories::RepoRecordInput;
 use uuid::Uuid;
 
 const WITH_SUB: &str = r#"{
@@ -147,7 +147,7 @@ async fn prune_orphans_removes_unused_shared_entities_but_keeps_users() {
 
 #[tokio::test]
 async fn canonicalizes_dependency_target_against_catalog() {
-    use platiq::platform::catalog::resolve_dependencies;
+    use pmp_iq::platform::catalog::resolve_dependencies;
 
     let db = SqliteDb::start().await;
     let writer = store::platform_writer(&db.database());

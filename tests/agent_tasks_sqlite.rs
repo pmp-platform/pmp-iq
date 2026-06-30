@@ -1,9 +1,9 @@
 //! Smoke test for the agent-task repository against a real (in-memory) SQLite,
 //! exercising the 019 migration plus UUID(BLOB)/timestamp(TEXT) decoding.
 
-use platiq::agent_tasks::model::{NewAgentTask, NewAgentTaskTarget, NewMessage};
-use platiq::agent_tasks::repository::{AgentTaskRepository, SqliteAgentTaskRepository};
-use platiq::db::{Database, migrate};
+use pmp_iq::agent_tasks::model::{NewAgentTask, NewAgentTaskTarget, NewMessage};
+use pmp_iq::agent_tasks::repository::{AgentTaskRepository, SqliteAgentTaskRepository};
+use pmp_iq::db::{Database, migrate};
 use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
 

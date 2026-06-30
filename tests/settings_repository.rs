@@ -4,8 +4,8 @@
 mod common;
 
 use common::{SqliteDb, TestDb};
-use platiq::db::Database;
-use platiq::store;
+use pmp_iq::db::Database;
+use pmp_iq::store;
 use serde_json::json;
 
 async fn round_trip(db: Database) {

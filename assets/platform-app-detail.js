@@ -352,6 +352,53 @@
     });
   }
 
+  // ---- Interactions (outbound calls; "Details" opens the implementing files) --
+
+  function renderInteractions($panel, d) {
+    $panel.empty();
+    var deps = d.dependencies || [];
+    // Index components so each interaction can resolve to its implementing files.
+    var byId = {}, byName = {};
+    (d.components || []).forEach(function (c) {
+      if (c.id != null) byId[c.id] = c;
+      if (c.name != null) byName[c.name] = c;
+    });
+    var $card = $('<div class="bg-white rounded-lg shadow border border-slate-200 p-3 overflow-auto"></div>').appendTo($panel);
+    var $tbl = $('<table class="w-full text-sm"></table>').appendTo($card);
+    $tbl.append('<thead><tr class="text-left text-slate-500 border-b">' +
+      '<th class="py-2 pr-3">Target</th><th class="py-2 pr-3">Type</th>' +
+      '<th class="py-2 pr-3">Description</th><th class="py-2 pr-3">Component</th>' +
+      '<th class="py-2 pr-3">Files</th><th class="py-2"></th></tr></thead>');
+    var $tb = $("<tbody></tbody>").appendTo($tbl);
+    deps.forEach(function (dep) {
+      var comp = (dep.component_id != null && byId[dep.component_id]) ||
+        (dep.component_name != null && byName[dep.component_name]) || null;
+      var files = (comp && comp.files) || [];
+      var $tr = $('<tr class="border-b last:border-0 align-top"></tr>');
+      var target = dep.target_app_id
+        ? '<a class="text-blue-600 hover:underline" href="/platform/applications/' +
+            esc(dep.target_app_id) + '">' + esc(dep.target_name) + "</a>"
+        : esc(dep.target_name);
+      $tr.append('<td class="py-2 pr-3">' + target + "</td>");
+      $tr.append('<td class="py-2 pr-3">' + (dep.kind ? PI.badgeFor(dep.kind) : "—") + "</td>");
+      $tr.append('<td class="py-2 pr-3">' + esc(dep.description || "—") + "</td>");
+      $tr.append('<td class="py-2 pr-3">' + esc(dep.component_name || "—") + "</td>");
+      $tr.append('<td class="py-2 pr-3 text-slate-500">' + files.length + "</td>");
+      var $td = $('<td class="py-2"></td>');
+      if (files.length) {
+        var $btn = $('<button type="button" class="bg-blue-100 text-blue-700 rounded px-2 py-0.5 text-xs font-medium hover:bg-blue-200">Details</button>');
+        $btn.on("click", function () {
+          if (window.PIFiles) PIFiles.openFiles({ title: dep.target_name + " — " + (dep.kind || "call"), files: files });
+        });
+        $td.append($btn);
+      } else {
+        $td.append('<span class="text-slate-400 text-xs">—</span>');
+      }
+      $tr.append($td);
+      $tb.append($tr);
+    });
+  }
+
   // ---- Tables -------------------------------------------------------------
 
   function entityLink(entity) {
@@ -389,6 +436,8 @@
   // "Ask a Question" (opens the Q&A modal) and "Sync" (scoped sync run).
   function renderSyncButton(d) {
     var $actions = $("#app-actions").empty();
+    // Always offer a Refresh that re-fetches the detail and re-renders the tabs.
+    $actions.append(PI.refreshButton(loadDetail));
     if (!d.repository_id) return;
     var $ask = $('<button type="button" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">Ask a Question</button>');
     $ask.on("click", function () { if (window.PIAsk) PIAsk.open(); });
@@ -472,6 +521,10 @@
       tabs.push({ label: "Components", render: function ($p) { renderComponents($p, d); } });
     }
 
+    if ((d.dependencies || []).length) {
+      tabs.push({ label: "Interactions", render: function ($p) { renderInteractions($p, d); } });
+    }
+
     var signals = [];
     (d.components || []).forEach(function (c) {
       (c.observability_signals || []).forEach(function (s) {
@@ -505,14 +558,27 @@
           if (typeof G6 === "undefined") { $("#cm-graph").html('<div class="text-sm text-slate-400 p-3">Graph library unavailable.</div>'); return; }
           if (data.truncated) $("#cm-note").text("Map truncated for a large repository.");
           var edges = (data.edges || []).map(function (e, i) { return { id: "cm" + i, source: e.source, target: e.target }; });
+          // The codebase map is a strict directory containment tree, so render it
+          // as a left-to-right compact tree (flowchart) rather than a force blob.
           var graph = new G6.Graph({
             container: document.getElementById("cm-graph"), autoResize: true, autoFit: "view",
             data: { nodes: data.nodes || [], edges: edges },
-            layout: { type: "d3-force", link: { distance: 80 }, manyBody: { strength: -200 }, collide: { radius: 20 } },
-            node: { style: { size: 12, fill: "#64748b", stroke: "#ffffff", lineWidth: 1,
-              labelText: function (n) { return n.data.label; }, labelPlacement: "bottom", labelFontSize: 8, labelFill: "#0f172a" } },
-            edge: { style: { stroke: "#cbd5e1", endArrow: true } },
-            behaviors: ["drag-canvas", "drag-element"],
+            layout: {
+              type: "compact-box", direction: "LR",
+              getId: function (n) { return n.id; },
+              getWidth: function () { return 120; },
+              getHeight: function () { return 26; },
+              getHGap: function () { return 40; },
+              getVGap: function () { return 8; },
+            },
+            node: { type: "rect", style: {
+              size: [120, 26], radius: 4, fill: "#eff6ff", stroke: "#94a3b8", lineWidth: 1,
+              labelText: function (n) { return n.data.label; }, labelPlacement: "center",
+              labelFontSize: 9, labelFill: "#0f172a",
+              labelMaxWidth: 110, labelWordWrap: true, labelMaxLines: 1, labelTextOverflow: "ellipsis",
+            } },
+            edge: { type: "cubic-horizontal", style: { stroke: "#cbd5e1" } },
+            behaviors: ["drag-canvas", "zoom-canvas", "drag-element"],
           });
           graph.render();
           attachG6Controls($("#cm-ctrls"), graph);
@@ -533,10 +599,18 @@
       var base = "/api/platform/applications/" + d.id + "/metrics";
       $p.html('<div class="bg-white rounded-lg shadow border border-slate-200 p-4">' +
         '<div class="flex items-center justify-between mb-2"><div class="font-semibold">Quality metrics</div>' +
-        '<button id="metrics-collect" type="button" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">Collect</button></div>' +
+        '<button id="metrics-collect" type="button" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200 disabled:opacity-50">Collect</button></div>' +
+        '<div id="metrics-note" class="text-xs text-slate-500 mb-1"></div>' +
         '<div id="metrics-body" class="text-sm text-slate-500">Loading…</div></div>');
+      // Disable Collect while a collection for this app is already queued/running,
+      // so we never enqueue a duplicate (the server enforces this too).
+      function setCollecting(on, note) {
+        $("#metrics-collect").prop("disabled", on);
+        $("#metrics-note").text(on ? (note || "Collecting… refresh in a moment.") : "");
+      }
       function load() {
         $.ajax({ url: base, dataType: "json", global: false }).done(function (r) {
+          setCollecting(!!r.collecting);
           var ms = r.metrics || [];
           if (!ms.length) { $("#metrics-body").html('<div class="text-slate-400">No metrics yet. Click Collect to gather them from CI + the codebase.</div>'); return; }
           var rows = ms.map(function (m) {
@@ -547,11 +621,14 @@
         });
       }
       $("#metrics-collect").on("click", function () {
-        var $b = $(this).prop("disabled", true);
-        $.ajax({ url: base, method: "POST" }).always(function () {
-          $b.prop("disabled", false);
-          $("#metrics-body").text("Collecting… refresh in a moment.");
-        });
+        setCollecting(true);
+        $.ajax({ url: base, method: "POST" })
+          .done(function (resp) {
+            setCollecting(true, resp && resp.already_running
+              ? "Already collecting for this repository — refresh in a moment."
+              : "Collecting… refresh in a moment.");
+          })
+          .fail(function () { setCollecting(false); window.PI.toast("Could not start collection", false); });
       });
       load();
     } });
@@ -567,6 +644,14 @@
     tabset($bar, $body, tabs);
   }
 
+  // Re-fetch the application detail and re-render every tab (the Refresh button
+  // in the page header and the initial load both call this).
+  function loadDetail() {
+    $.getJSON("/api/platform/" + meta.entity + "/" + meta.id)
+      .done(function (d) { render(d.detail); })
+      .fail(function () { $("#detail-title").text("Not found"); });
+  }
+
   $(function () {
     if (typeof mermaid !== "undefined") {
       mermaid.initialize({
@@ -579,10 +664,6 @@
     // Friendly property names are best-effort; render regardless of the result.
     $.getJSON("/api/settings/entity-properties")
       .always(function (p) { buildPropMap(p && p.properties); })
-      .always(function () {
-        $.getJSON("/api/platform/" + meta.entity + "/" + meta.id)
-          .done(function (d) { render(d.detail); })
-          .fail(function () { $("#detail-title").text("Not found"); });
-      });
+      .always(loadDetail);
   });
 })(jQuery);

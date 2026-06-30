@@ -35,7 +35,7 @@
       '<td class="text-right">Avg coverage</td><td class="text-right">Apps</td></tr>' + body + "</table>";
   }
 
-  $(function () {
+  function load() {
     $.ajax({ url: "/api/platform/dashboard", dataType: "json" }).done(function (d) {
       var r = d.rollup || {};
       $("#dash-rollup").html(
@@ -53,5 +53,12 @@
     }).fail(function () {
       $("#dash-rollup").html('<div class="text-sm text-red-600">Could not load dashboard.</div>');
     });
+  }
+
+  $(function () {
+    $('<div class="flex justify-end mb-2"></div>')
+      .append(window.PI.refreshButton(load))
+      .insertBefore("#dash-rollup");
+    load();
   });
 })(jQuery);

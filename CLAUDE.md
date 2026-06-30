@@ -1,4 +1,4 @@
-# PlatIQ — project notes
+# pmp-iq — project notes
 
 Rust 2024 web app: connects to git accounts (GitHub/GitLab/local), clones
 selected repos, runs AI analysis, and builds a queryable platform model
@@ -103,14 +103,18 @@ as tables and a connection graph.
   from the task targets); page `/platform/campaigns` (Campaigns tab).
 - `src/c4.rs` — **C4 model** (M29): projects the platform graph (applications =
   systems; infra/services/external = external systems; edges = relationships)
-  into `structurizr_dsl` + `mermaid_context` (C4 System-Context). Page
-  `/platform/c4` (C4 tab) + `GET /api/platform/c4` → `{dsl, mermaid}`;
-  `assets/platform-c4.js` renders the Mermaid + shows the DSL.
+  into `structurizr_dsl` + `mermaid_context` (C4 System-Context). Both take an
+  `include_dependencies` flag — **applications only by default** (keeping app→app
+  relationships), `?dependencies=true` adds the external systems. Page
+  `/platform/c4` (C4 tab, "Include dependencies" checkbox) + `GET
+  /api/platform/c4?dependencies=` → `{dsl, mermaid}`; `assets/platform-c4.js`
+  renders the Mermaid + shows the DSL.
 - `src/codebase_map.rs` — **codebase map** (M28): `build_map` derives a
   bounded directory/module structure graph (nodes = directories, edges =
   containment; depth/node caps with `truncated`) from a cloned checkout via the
   sandboxed `FileBrowser`. Route `GET /api/platform/applications/:id/codebase-map`;
-  "Codebase Map" G6 tab on app detail. (Import-dependency edges are future work.)
+  "Codebase Map" G6 tab on app detail, rendered as a left-to-right `compact-box`
+  tree (rect nodes). (Import-dependency edges are future work.)
 - `src/dashboard.rs` — **insights dashboard** (M32): pure `build(apps, metrics)`
   aggregates latest metrics + the application list into rollups, leaderboards
   (top/needs coverage, lowest/highest complexity), and group-by (coverage by
@@ -121,14 +125,18 @@ as tables and a connection graph.
   `latest_all`; history kept), `job` (`CollectMetricsJob`, type `collect-metrics`:
   per-repo-locked clone → LLM extracts tests/coverage/complexity/LOC/has_ci from
   CI + codebase → `parse_metrics` normalises, omitting nulls). Routes
-  `GET`/`POST /api/platform/applications/:id/metrics`; Insights tab on app detail.
+  `GET`/`POST /api/platform/applications/:id/metrics`; `GET` also returns
+  `collecting` and `POST` is **deduped** — it won't enqueue a second collection
+  while one is queued/running for the same application (returns the in-flight one
+  with `already_running:true`), via `JobExecutionRepository::active_for_job`.
+  Insights tab on app detail disables Collect while one is in progress.
 - `src/nl_query.rs` — **Ask the platform** (M26): `CatalogQuery` answers a
   natural-language question grounded in a serialised `GraphQuery` snapshot of the
   catalog (system prompt forbids inventing data). Route `POST /api/platform/ask`;
   global ask box on the graph page (`assets/platform-ask.js`).
 - `src/pr_watcher.rs` — **PR watcher** (job type `pr-watcher`, cron `* * * * *`):
   polls `list_open_pr_targets`; finishes merged/closed PRs, and on new review
-  comments / merge conflicts / failed checks posts a marker comment (`🤖 PlatIQ:`,
+  comments / merge conflicts / failed checks posts a marker comment (`🤖 pmp-iq:`,
   used to dedup) and enqueues a continue-branch agent fix turn as a **queued**
   execution that the M27 dispatcher runs. Provider gains `pull_request_status`/
   `pull_request_comments`/`pull_request_checks`/`post_pull_request_comment`
@@ -141,12 +149,20 @@ as tables and a connection graph.
 - `src/repositories/` — cloned-repo records: `RepoRecord`,
   `RepoRecordRepository`.
 - `src/review/` — `ReviewRepositoriesJob` (job type `sync-repositories`):
-  clones selected repos from enabled accounts, then (when the job config sets
-  `ai_profile_id`) analyses each and writes the platform model. Snapshots the
+  clones selected repos from enabled accounts, then (when an AI profile is
+  available) analyses each and writes the platform model. `build_provider` uses
+  `resolve_profile_id`: the profile pinned in the job config `ai_profile_id`, else
+  the default profile (`AiProfileService::default_profile_id`) — so a sync seeded
+  without a profile still analyses once one exists; clone-only only when none is
+  configured anywhere. Snapshots the
   entity catalog once at run start (`platform.catalog()`) and runs
   `catalog::resolve_dependencies` on each result before write to canonicalize
   dependency targets. After the sweep it calls `writer.prune_orphans()` to delete
-  shared entities no longer referenced.
+  shared entities no longer referenced. `ensure_sync_job` pre-seeds the singleton
+  job at boot (in `main`, like the other `ensure_job`s), wiring the default AI
+  profile; it backfills `ai_profile_id` into an existing job that lacks one when a
+  profile becomes available. Per-app sync passes a `repository_id` param to scope
+  the sweep; an empty param = full-fleet sweep.
 - `src/platform/` — `analysis` (`AnalysisResult` schema + parse/validate;
   `LinkedInfo` backs every linked entity; dependencies are code-derived outbound
   connections, each carrying a `component` name the writer resolves to a
@@ -155,7 +171,10 @@ as tables and a connection graph.
   + `apply_config` — drop disallowed kinds, strip unconfigured metadata keys),
   `analyzer`
   (`RepositoryAnalyzer`/`FileAnalyzer` — manifest signals + AI; system prompt
-  built from `AnalysisConfig` passed via `AnalysisInput`), `linked`
+  built from `AnalysisConfig` passed via `AnalysisInput`; sets `working_dir` to
+  the checkout so the Claude CLI reads real files, and `retain_existing_files`
+  drops component/use-case `files` paths absent from the checkout so the file
+  viewer never 404s), `linked`
   (`LinkedEntity` registry: the table-driven `(name,kind,version,metadata)`
   entities — infrastructure, tools, cloud-providers, services, platforms,
   external — sharing one writer/query/graph code path), `writer`
@@ -183,8 +202,10 @@ as tables and a connection graph.
   platform-app-detail.js`): Overview (focused app→deps→infra G6 graph +
   properties/languages), Use cases (G6 flowchart of use cases → click opens a
   wide modal with Sequence + Component mermaid diagrams; the analyzer always
-  emits both per use case), conditional per-relation tables, and an
-  always-present Members tab. Diagrams have zoom/reset controls; wheel-zoom off.
+  emits both per use case), conditional per-relation tables, an **Interactions**
+  tab (outbound `dependencies` — http/db/queue/… — each with a "Details" button
+  opening the implementing component's files), and an always-present Members tab.
+  Diagrams have zoom/reset controls; wheel-zoom off.
 - `src/jobs/` — jobs subsystem: `model` (`ExecStatus` incl. `Skipped`;
   `JobError::Failed|CannotRun{retry_at}`; `merge_object` JSON helper),
   `repository` (jobs + executions; `list_due`/`set_next_run_at`,

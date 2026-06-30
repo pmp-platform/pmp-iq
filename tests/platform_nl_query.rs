@@ -8,7 +8,7 @@ use axum::body::Body;
 use axum::http::Request;
 use axum::http::header::{CONTENT_TYPE, COOKIE};
 use common::{SqliteDb, build_state_sqlite, cookie_header, login_cookies};
-use platiq::app::build_router;
+use pmp_iq::app::build_router;
 use tower::ServiceExt;
 
 async fn post_ask(app: &axum::Router, cookies: &[String], body: &str) -> u16 {

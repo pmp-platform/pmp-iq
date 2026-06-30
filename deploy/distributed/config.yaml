@@ -7,7 +7,7 @@ server:
   port: 8080
 
 database:
-  url: "postgres://postgres:postgres@db:5432/platiq?sslmode=disable"
+  url: "postgres://postgres:postgres@db:5432/pmp-iq?sslmode=disable"
   max_connections: 10
 
 # Redis backs the distributed lock so leader election and per-job/per-repo

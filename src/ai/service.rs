@@ -47,6 +47,11 @@ impl AiProfileService {
             Some(key) if !key.is_empty() => Some(self.encrypt(key)?),
             _ => existing,
         };
+        if form.provider_type == AiProviderType::Anthropic && secrets_enc.is_none() {
+            return Err(AppError::BadRequest(
+                "an API key is required for Anthropic API profiles".into(),
+            ));
+        }
         Ok(AiProfileInput {
             name: form.name,
             provider_type: form.provider_type,
@@ -77,6 +82,17 @@ impl AiProfileService {
 
     pub async fn list(&self) -> Result<Vec<AiProfile>, AppError> {
         Ok(self.repo.list().await?)
+    }
+
+    /// Pick the default profile id to analyse with: the first enabled profile,
+    /// else the first configured one; `None` when no profiles exist.
+    pub async fn default_profile_id(&self) -> Result<Option<Uuid>, AppError> {
+        let profiles = self.list().await?;
+        Ok(profiles
+            .iter()
+            .find(|p| p.enabled)
+            .or_else(|| profiles.first())
+            .map(|p| p.id))
     }
 
     /// Validate a profile's credentials/binary via its provider.
@@ -213,6 +229,47 @@ mod tests {
         let svc = AiProfileService::new(Arc::new(repo), cli_deps(r#"{"result":"hi there"}"#));
         let resp = svc.test_prompt(Uuid::new_v4(), "hello").await.unwrap();
         assert_eq!(resp.text, "hi there");
+    }
+
+    #[tokio::test]
+    async fn create_anthropic_without_key_is_rejected() {
+        // No repo call expected: validation fails before persistence.
+        let svc = AiProfileService::new(Arc::new(MockAiProfileRepository::new()), deps());
+        let form = ProfileForm {
+            name: "a".into(),
+            provider_type: AiProviderType::Anthropic,
+            config: json!({}),
+            api_key: None,
+            enabled: true,
+        };
+        assert!(matches!(svc.create(form).await, Err(AppError::BadRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn update_anthropic_keeps_existing_key_when_blank() {
+        let mut repo = MockAiProfileRepository::new();
+        repo.expect_get()
+            .returning(|_| Ok(AiProfile { secrets_enc: Some(vec![9]), ..cli_profile() }));
+        repo.expect_update().returning(|id, i| {
+            Ok(AiProfile {
+                id,
+                name: i.name,
+                provider_type: i.provider_type,
+                config: i.config,
+                secrets_enc: i.secrets_enc,
+                enabled: i.enabled,
+            })
+        });
+        let svc = AiProfileService::new(Arc::new(repo), deps());
+        let form = ProfileForm {
+            name: "a".into(),
+            provider_type: AiProviderType::Anthropic,
+            config: json!({}),
+            api_key: None,
+            enabled: true,
+        };
+        // Blank key is allowed because the stored profile already has a secret.
+        assert!(svc.update(Uuid::new_v4(), form).await.is_ok());
     }
 
     #[tokio::test]

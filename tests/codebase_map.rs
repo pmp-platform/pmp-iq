@@ -8,11 +8,11 @@ use axum::http::Request;
 use axum::http::header::COOKIE;
 use common::{SqliteDb, build_state_sqlite, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platiq::app::build_router;
-use platiq::platform::AnalysisResult;
-use platiq::repositories::RepoRecordInput;
-use platiq::store;
+use pmp_iq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use pmp_iq::app::build_router;
+use pmp_iq::platform::AnalysisResult;
+use pmp_iq::repositories::RepoRecordInput;
+use pmp_iq::store;
 use serde_json::Value;
 use std::fs;
 use tower::ServiceExt;
@@ -26,7 +26,7 @@ const ANALYSIS: &str = r#"{
 }"#;
 
 /// Seed an application; when `clone_at` is set, mark the repository cloned there.
-async fn seed(db: &platiq::db::Database, clone_at: Option<&str>) -> Uuid {
+async fn seed(db: &pmp_iq::db::Database, clone_at: Option<&str>) -> Uuid {
     let account = store::accounts(db)
         .create(AccountInput {
             name: "gh".into(),

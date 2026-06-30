@@ -8,7 +8,7 @@ use crate::analysis_config::AnalysisConfigService;
 use crate::error::AppError;
 use crate::git::{CloneRequest, GitClient};
 use crate::hints::{EntityHint, EntityHintRepository};
-use crate::jobs::model::{JobInput, TriggerType};
+use crate::jobs::model::{Job, JobInput, TriggerType, merge_object};
 use crate::jobs::repository::JobRepository;
 use crate::jobs::{JobContext, JobError, JobOutcome, JobType};
 use crate::locks::{DistributedLock, Lease, lock_keys};
@@ -108,16 +108,15 @@ impl ReviewRepositoriesJob {
         Self { deps }
     }
 
-    /// Build the AI provider for the job, if an `ai_profile_id` is configured.
+    /// Build the AI provider for the job: the profile pinned in the job config,
+    /// else the default profile. `None` only when no profile exists anywhere.
     async fn build_provider(
         &self,
         ctx: &JobContext,
     ) -> Result<Option<Box<dyn AiProvider>>, JobError> {
-        let Some(profile_id) = ctx.config.get("ai_profile_id").and_then(|v| v.as_str()) else {
+        let Some(id) = resolve_profile_id(&self.deps.ai, &ctx.config).await? else {
             return Ok(None);
         };
-        let id = Uuid::parse_str(profile_id)
-            .map_err(|e| JobError::Failed(format!("invalid ai_profile_id: {e}")))?;
         let profile = self
             .deps
             .ai
@@ -408,9 +407,13 @@ impl ReviewRepositoriesJob {
 
         // Resume from any prior checkpoint (skips already-processed accounts).
         let mut checkpoint = Checkpoint::load(&ctx.state);
-        let analysis = if provider.is_some() { "with" } else { "without" };
+        let analysis = if provider.is_some() {
+            "with analysis".to_string()
+        } else {
+            "without analysis (no AI profile configured — add one under AI Profiles)".to_string()
+        };
         ctx.log(&format!(
-            "reviewing {} account(s) {analysis} analysis ({} already done)",
+            "reviewing {} account(s) {analysis} ({} already done)",
             accounts.len(),
             checkpoint.done_accounts.len()
         ))
@@ -484,31 +487,240 @@ impl ReviewRepositoriesJob {
     }
 }
 
-/// Find the first `sync-repositories` job, creating one (configured with
-/// `ai_profile_id` when a default profile is available) if none exists. Returns
-/// its id so a per-application sync can be enqueued with a `repository_id` scope.
+/// The profile id to analyse with: the one pinned in the job `config`, else the
+/// default profile (so a sync seeded without a profile still analyses when one
+/// exists). `None` only when no profile is configured anywhere.
+async fn resolve_profile_id(
+    ai: &AiProfileService,
+    config: &Value,
+) -> Result<Option<Uuid>, JobError> {
+    if let Some(s) = config.get("ai_profile_id").and_then(|v| v.as_str()) {
+        let id = Uuid::parse_str(s)
+            .map_err(|e| JobError::Failed(format!("invalid ai_profile_id: {e}")))?;
+        return Ok(Some(id));
+    }
+    ai.default_profile_id()
+        .await
+        .map_err(|e| JobError::Failed(e.to_string()))
+}
+
+/// The sync-job config, carrying `ai_profile_id` when a profile is available.
+fn sync_config(ai_profile_id: Option<Uuid>) -> Value {
+    match ai_profile_id {
+        Some(id) => json!({ "ai_profile_id": id }),
+        None => json!({}),
+    }
+}
+
+/// Find the singleton `sync-repositories` job, creating it (pre-seeded at boot)
+/// if absent. When it already exists but carries no `ai_profile_id` and one is
+/// now available, backfill it so later syncs run analysis. Returns its id so a
+/// per-application sync can be enqueued with a `repository_id` scope.
 pub async fn ensure_sync_job(
     jobs: &dyn JobRepository,
     ai_profile_id: Option<Uuid>,
 ) -> Result<Uuid, AppError> {
     let existing = jobs.list().await?;
     if let Some(job) = existing.iter().find(|j| j.job_type == JOB_TYPE) {
+        backfill_profile(jobs, job, ai_profile_id).await?;
         return Ok(job.id);
     }
-    let config = match ai_profile_id {
-        Some(id) => json!({ "ai_profile_id": id }),
-        None => json!({}),
-    };
     let created = jobs
         .create(JobInput {
             job_type: JOB_TYPE.to_string(),
             name: "Sync repositories".to_string(),
             trigger_type: TriggerType::Manual,
             cron_expr: None,
-            config,
+            config: sync_config(ai_profile_id),
             enabled: true,
             next_run_at: None,
         })
         .await?;
     Ok(created.id)
+}
+
+/// Add `ai_profile_id` to an existing sync job that lacks one, preserving its
+/// other settings. No-op when the job already has a profile or none is given.
+async fn backfill_profile(
+    jobs: &dyn JobRepository,
+    job: &Job,
+    ai_profile_id: Option<Uuid>,
+) -> Result<(), AppError> {
+    let Some(id) = ai_profile_id else {
+        return Ok(());
+    };
+
+    if job.config.get("ai_profile_id").and_then(Value::as_str).is_some() {
+        return Ok(());
+    }
+    let mut config = job.config.clone();
+    merge_object(&mut config, &json!({ "ai_profile_id": id }));
+    jobs.update(
+        job.id,
+        JobInput {
+            job_type: job.job_type.clone(),
+            name: job.name.clone(),
+            trigger_type: job.trigger_type.clone(),
+            cron_expr: job.cron_expr.clone(),
+            config,
+            enabled: job.enabled,
+            next_run_at: job.next_run_at,
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod ensure_sync_job_tests {
+    use super::*;
+    use crate::jobs::repository::MockJobRepository;
+
+    fn job_from_input(i: JobInput) -> Job {
+        Job {
+            id: Uuid::new_v4(),
+            job_type: i.job_type,
+            name: i.name,
+            trigger_type: i.trigger_type,
+            cron_expr: i.cron_expr,
+            config: i.config,
+            enabled: i.enabled,
+            next_run_at: i.next_run_at,
+        }
+    }
+
+    fn seed_job(id: Uuid, config: Value) -> Job {
+        Job {
+            id,
+            job_type: JOB_TYPE.into(),
+            name: "Sync repositories".into(),
+            trigger_type: TriggerType::Manual,
+            cron_expr: None,
+            config,
+            enabled: true,
+            next_run_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn creates_seed_job_with_profile() {
+        let profile = Uuid::new_v4();
+        let mut jobs = MockJobRepository::new();
+        jobs.expect_list().times(1).returning(|| Ok(vec![]));
+        jobs.expect_create()
+            .times(1)
+            .withf(move |i| {
+                i.job_type == JOB_TYPE
+                    && i.config.get("ai_profile_id").and_then(Value::as_str)
+                        == Some(profile.to_string().as_str())
+            })
+            .returning(|i| Ok(job_from_input(i)));
+        assert!(ensure_sync_job(&jobs, Some(profile)).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn backfills_missing_profile_preserving_config() {
+        let profile = Uuid::new_v4();
+        let job_id = Uuid::new_v4();
+        let existing = seed_job(job_id, json!({ "max_concurrency": 2 }));
+        let mut jobs = MockJobRepository::new();
+        jobs.expect_list().times(1).returning(move || Ok(vec![existing.clone()]));
+        jobs.expect_update()
+            .times(1)
+            .withf(move |id, i| {
+                *id == job_id
+                    && i.config.get("ai_profile_id").and_then(Value::as_str)
+                        == Some(profile.to_string().as_str())
+                    && i.config.get("max_concurrency").and_then(Value::as_u64) == Some(2)
+            })
+            .returning(|_, i| Ok(job_from_input(i)));
+        assert_eq!(ensure_sync_job(&jobs, Some(profile)).await.unwrap(), job_id);
+    }
+
+    #[tokio::test]
+    async fn keeps_existing_profile_and_does_not_update() {
+        let job_id = Uuid::new_v4();
+        let existing = seed_job(job_id, json!({ "ai_profile_id": Uuid::new_v4() }));
+        let mut jobs = MockJobRepository::new();
+        jobs.expect_list().times(1).returning(move || Ok(vec![existing.clone()]));
+        // No expect_update / expect_create: the existing profile is untouched.
+        assert_eq!(ensure_sync_job(&jobs, Some(Uuid::new_v4())).await.unwrap(), job_id);
+    }
+
+    #[tokio::test]
+    async fn no_profile_leaves_existing_job_untouched() {
+        let job_id = Uuid::new_v4();
+        let existing = seed_job(job_id, json!({}));
+        let mut jobs = MockJobRepository::new();
+        jobs.expect_list().times(1).returning(move || Ok(vec![existing.clone()]));
+        // None profile → no backfill, no update.
+        assert_eq!(ensure_sync_job(&jobs, None).await.unwrap(), job_id);
+    }
+}
+
+#[cfg(test)]
+mod resolve_profile_id_tests {
+    use super::*;
+    use crate::ai::AiProviderDeps;
+    use crate::ai::model::{AiProfile, AiProviderType};
+    use crate::ai::repository::MockAiProfileRepository;
+    use crate::crypto::MockEncryptor;
+    use crate::httpclient::MockHttpClient;
+    use crate::process::MockCommandRunner;
+
+    fn ai_service(repo: MockAiProfileRepository) -> AiProfileService {
+        let deps = AiProviderDeps {
+            http: Arc::new(MockHttpClient::new()),
+            runner: Arc::new(MockCommandRunner::new()),
+            encryptor: Arc::new(MockEncryptor::new()),
+        };
+        AiProfileService::new(Arc::new(repo), deps)
+    }
+
+    fn profile_with(id: Uuid, enabled: bool) -> AiProfile {
+        AiProfile {
+            id,
+            name: "p".into(),
+            provider_type: AiProviderType::ClaudeCli,
+            config: json!({ "binary_path": "claude" }),
+            secrets_enc: None,
+            enabled,
+        }
+    }
+
+    #[tokio::test]
+    async fn uses_pinned_profile_without_consulting_repo() {
+        let id = Uuid::new_v4();
+        // No `expect_list`: a pinned id must not trigger a default lookup.
+        let ai = ai_service(MockAiProfileRepository::new());
+        let config = json!({ "ai_profile_id": id });
+        assert_eq!(resolve_profile_id(&ai, &config).await.unwrap(), Some(id));
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_default_profile_when_unset() {
+        let want = Uuid::new_v4();
+        let mut repo = MockAiProfileRepository::new();
+        repo.expect_list().times(1).returning(move || Ok(vec![profile_with(want, true)]));
+        let ai = ai_service(repo);
+        assert_eq!(resolve_profile_id(&ai, &json!({})).await.unwrap(), Some(want));
+    }
+
+    #[tokio::test]
+    async fn returns_none_when_no_profiles_exist() {
+        let mut repo = MockAiProfileRepository::new();
+        repo.expect_list().times(1).returning(|| Ok(vec![]));
+        let ai = ai_service(repo);
+        assert_eq!(resolve_profile_id(&ai, &json!({})).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn invalid_pinned_id_errors() {
+        let ai = ai_service(MockAiProfileRepository::new());
+        let config = json!({ "ai_profile_id": "not-a-uuid" });
+        assert!(matches!(
+            resolve_profile_id(&ai, &config).await,
+            Err(JobError::Failed(_))
+        ));
+    }
 }

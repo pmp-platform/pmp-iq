@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Jobs · PlatIQ{% endblock %}
+{% block title %}Jobs · pmp-iq{% endblock %}
 {% block content %}
 <h1 class="text-xl font-bold mb-4">Jobs</h1>
 
@@ -38,7 +38,7 @@
     </div>
     <table class="w-full bg-white rounded-lg shadow border border-slate-200" id="executions-table">
       <thead class="text-left text-slate-500 border-b">
-        <tr><th class="p-2.5">Status</th><th>Trigger</th><th>Started</th><th>Finished</th><th></th></tr>
+        <tr><th class="p-2.5">Job</th><th>Status</th><th>Trigger</th><th>Started</th><th>Finished</th><th></th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -71,7 +71,7 @@
       <div class="flex items-center justify-between pt-1">
         <span id="job-msg" class="text-xs"></span>
         <div class="flex gap-2">
-          <button type="button" data-modal-close class="bg-slate-100 text-slate-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-slate-200">Cancel</button>
+          <button type="button" data-modal-close class="bg-red-100 text-red-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-red-200">Cancel</button>
           <button class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">Save</button>
         </div>
       </div>

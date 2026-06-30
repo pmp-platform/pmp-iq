@@ -8,9 +8,9 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 pub fn init(level: Option<&str>) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| match level {
         Some(level) if !level.trim().is_empty() => {
-            EnvFilter::new(format!("{level},platiq={level}"))
+            EnvFilter::new(format!("{level},pmp_iq={level}"))
         }
-        _ => EnvFilter::new("info,platiq=debug"),
+        _ => EnvFilter::new("info,pmp_iq=debug"),
     });
     let _ = tracing_subscriber::registry()
         .with(filter)

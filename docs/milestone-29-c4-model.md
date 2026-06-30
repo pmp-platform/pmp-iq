@@ -4,7 +4,7 @@
 
 Project the platform model into the **C4 model** (Context → Container →
 Component → Code) and render standard, zoomable C4 views, plus export to
-**Structurizr DSL** and **C4 Mermaid/PlantUML**. Because PlatIQ's model is
+**Structurizr DSL** and **C4 Mermaid/PlantUML**. Because pmp-iq's model is
 auto-derived from code, the C4 views are always current — and can be diffed
 against a committed architecture-as-code file to flag **drift**.
 

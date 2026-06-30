@@ -92,7 +92,7 @@ impl HttpGitHubIdentity {
 
     fn get(url: &str, token: &str) -> HttpRequest {
         HttpRequest::get(url)
-            .header("User-Agent", "platiq")
+            .header("User-Agent", "pmp-iq")
             .header("Accept", "application/vnd.github+json")
             .header("Authorization", format!("Bearer {token}"))
     }
@@ -133,7 +133,7 @@ impl GitHubIdentity for HttpGitHubIdentity {
             "redirect_uri": exchange.redirect_url,
         });
         let req = HttpRequest::post(&url, body.to_string())
-            .header("User-Agent", "platiq")
+            .header("User-Agent", "pmp-iq")
             .header("Accept", "application/json")
             .header("Content-Type", "application/json");
         let resp = self.http.send(req).await.map_err(provider)?;

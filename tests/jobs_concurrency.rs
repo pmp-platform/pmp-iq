@@ -4,8 +4,8 @@
 mod common;
 
 use common::SqliteDb;
-use platiq::jobs::model::{JobInput, TriggerType};
-use platiq::store;
+use pmp_iq::jobs::model::{JobInput, TriggerType};
+use pmp_iq::store;
 use serde_json::{Value, json};
 
 #[tokio::test]

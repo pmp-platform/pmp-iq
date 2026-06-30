@@ -116,7 +116,7 @@ CREATE TABLE access_grants (
 ```
 
 > Note: `users`/`groups` here model **who can access discovered applications**,
-> not who logs into PlatIQ (that's the M03 operator). Keep them
+> not who logs into pmp-iq (that's the M03 operator). Keep them
 > clearly separated in code and docs.
 
 ### Analyzer

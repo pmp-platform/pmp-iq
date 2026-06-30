@@ -2,7 +2,7 @@
 //! then exercise list (search + pagination) and detail endpoints.
 
 mod common;
-use platiq::store;
+use pmp_iq::store;
 
 use axum::body::Body;
 use axum::http::header::COOKIE;
@@ -10,10 +10,10 @@ use axum::http::{Method, Request, StatusCode};
 use axum::response::Response;
 use common::{TestDb, build_state, cookie_header, login_cookies};
 use http_body_util::BodyExt;
-use platiq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
-use platiq::app::build_router;
-use platiq::platform::AnalysisResult;
-use platiq::repositories::RepoRecordInput;
+use pmp_iq::accounts::{AccountInput, AuthType, ProviderType, SelectionMode};
+use pmp_iq::app::build_router;
+use pmp_iq::platform::AnalysisResult;
+use pmp_iq::repositories::RepoRecordInput;
 use serde_json::Value;
 use tower::ServiceExt;
 use uuid::Uuid;

@@ -1,28 +1,143 @@
-# PlatIQ
+# pmp-iq
 
-PlatIQ connects to one or more source-control accounts (GitHub,
-GitLab, or local repositories), clones the repositories you select, runs
-AI-driven analysis over them, and builds a queryable **platform model**:
-applications, the languages and libraries they use, the infrastructure and
-**tools** (docker compose, gradle, …) they build/run with, the external
-**dependencies** they call — classified as cloud providers, services,
-platforms/SaaS, or generic externals — how they connect to one another, and
-who can access them: real repository members fetched from the provider (with
-their permissions, and tracked as `member`/`ex_member` as people come and go)
-alongside CODEOWNERS-derived `codeowner` grants. For each application it also
-captures internal **components** and their **observability signals**, the
-**use cases** they fulfil, AI-generated **mermaid diagrams** (rendered
-locally), and the outbound **dependencies** detected from code (the apps/services
-it connects to), each mapped to the component that makes the connection. Each
-dependency's target name is resolved against the catalog of already-known
-apps/services (exact → normalized → fuzzy), so connections link to existing
-entities instead of fragmenting into near-duplicates. The `sync-repositories` job
-refreshes all of this on each run, removing data a repo no longer produces. The result is browsable as filterable tables, an
-interactive connection graph, and per-application detail pages.
+**pmp-iq** is an AI-powered software/platform catalog. It connects to your
+source-control accounts (GitHub, GitLab, or local repositories), clones the
+repositories you select, runs LLM-driven analysis over their code, and builds a
+queryable **platform model** of your entire fleet — the applications, the
+languages and libraries they use, the infrastructure and tooling they run on,
+the external services they depend on, how everything connects, and who owns and
+can access each piece.
 
-> Status: all milestones implemented (see [`docs/`](docs/)). Verified by 75
-> unit tests and 38 testcontainers-backed integration tests; ~85% line
-> coverage.
+The result is browsable as filterable tables, an interactive connection graph,
+C4 architecture diagrams, per-application detail pages, and an insights
+dashboard — and it can answer natural-language questions about your platform,
+open AI-authored pull requests across many repos at once, and keep itself up to
+date from webhooks.
+
+> **Status:** all milestones (see [`docs/`](docs/)) are implemented and covered
+> by mocked unit tests plus testcontainers-backed integration tests against both
+> SQLite and PostgreSQL.
+
+## Table of contents
+
+- [What it builds](#what-it-builds)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Quick start (local)](#quick-start-local)
+- [GitHub login](#github-login)
+- [Configuration](#configuration)
+- [Database & migrations](#database--migrations)
+- [Running with Docker](#running-with-docker)
+- [Front-end assets](#front-end-assets)
+- [Testing](#testing)
+- [Security & operations](#security--operations)
+- [Walkthrough](#walkthrough)
+- [Project layout](#project-layout)
+
+## What it builds
+
+From each analysed repository, pmp-iq extracts and continuously refreshes a
+connected model:
+
+- **Applications** — with their detected type, languages, and friendly
+  properties.
+- **Languages & libraries** — the ecosystems and dependencies each app uses,
+  de-duplicated and shared across the fleet.
+- **Infrastructure & tools** — what each app builds/runs with (docker compose,
+  gradle, …).
+- **External dependencies** — the apps/services each app calls, classified as
+  cloud providers, services, platforms/SaaS, or generic externals. Each
+  dependency's free-form target name is resolved against the catalog of
+  already-known entities (exact → normalized → fuzzy), so connections link to
+  existing entities instead of fragmenting into near-duplicates.
+- **People & access** — real repository members fetched from the provider (with
+  their permissions, tracked as `member`/`ex_member` as people come and go),
+  alongside CODEOWNERS-derived `codeowner` grants.
+- **Per-application internals** — components and their observability signals, the
+  use cases each app fulfils, AI-generated **mermaid** sequence and component
+  diagrams (rendered locally), a **codebase map**, and the outbound dependencies
+  detected from code, each mapped to the component that makes the connection.
+
+Every sync removes data a repository no longer produces and prunes shared
+entities nothing references any more, so the model stays an accurate reflection
+of the code.
+
+## Features
+
+### Catalog & exploration
+- **Interactive connection graph** (AntV G6) — applications by default, with
+  other entity kinds toggled on via the legend.
+- **Filterable, searchable, paginated tables** for every entity kind
+  (applications, libraries, infrastructure, tools, cloud providers, services,
+  platforms, external dependencies, users, groups) with per-entity filter
+  facets.
+- **Tabbed application detail pages** — Overview (focused app → dependencies →
+  infrastructure graph + properties/languages), Use cases (flowchart → click for
+  per-use-case sequence + component diagrams), Interactions (outbound
+  http/db/queue/… calls, each drillable to the implementing component's files),
+  conditional per-relation tables, a File Explorer, and an always-present
+  Members tab.
+- **Codebase map** — a bounded directory/module structure graph derived from the
+  cloned checkout, rendered as an interactive tree.
+- **C4 model views & export** — projects the platform graph into a Structurizr
+  DSL and a C4 System-Context mermaid diagram (applications by default;
+  dependencies opt-in).
+- **Insights dashboard** — fleet rollups, leaderboards (best/worst coverage and
+  complexity), and group-by breakdowns over the latest quality metrics.
+
+### AI analysis
+- **LLM-driven repository analysis** that produces the entire platform model,
+  driven by a configurable analysis vocabulary (allowed entity **kinds** and
+  extracted **properties**) so the model the AI emits is constrained and
+  consistent.
+- **Configurable AI providers** — the **Anthropic Messages API** or the local
+  **Claude CLI**, each behind a common trait, with a selectable model and
+  reasoning effort.
+- **LLM hints** — free-text corrections scoped to an entity type or a specific
+  entity, keyed by natural name so they survive re-syncs and are injected into
+  the analysis prompt as authoritative corrections.
+- **Quality metrics** — an LLM extracts tests/coverage/complexity/LOC/CI signals
+  per repository; history is kept and feeds the dashboard.
+- **Ask the platform** — a natural-language question answered against a
+  serialised snapshot of the whole catalog (the model is forbidden from
+  inventing data).
+- **Ask about an application** — a per-app Q&A box that runs an LLM session over
+  the app's cloned checkout and keeps a history of answers.
+
+### Automated changes
+- **AI Agent tasks** — multi-turn change tasks where an agentic Claude CLI
+  checks out a dedicated branch, edits files, commits, pushes, and opens/updates
+  a **pull request** — per single application or **fanned out across many
+  repositories** at once.
+- **Batch-change campaigns** — a named change applied across the fleet (explicit
+  apps or an allowlist filter), driving one multi-repo agent task with per-repo
+  PR progress.
+- **PR watcher** — polls open PRs, finishes merged/closed ones, and on new review
+  comments / merge conflicts / failed checks enqueues an agent fix turn.
+- **Webhooks** — HMAC-verified GitHub webhooks trigger immediate PR reconciles
+  and merge-driven re-syncs.
+
+### Jobs, scheduling & resilience
+- **Jobs subsystem** — `sync-repositories`, `llm-repository-request`,
+  `application-agent-task`, `pr-watcher`, and `collect-metrics`, with live
+  streaming output and per-execution metadata.
+- **Cron scheduling**, manual run/pause/resume, **resumable checkpoints** on
+  rate-limit, a **liveness heartbeat** so healthy long jobs are never cancelled,
+  and **configurable concurrency** with queueing.
+- **Leader-elected controller** over a TTL **distributed lock** (in-memory, SQL,
+  or Redis backend) that drives scheduling and stale-execution recovery across
+  multiple instances.
+
+### Platform & operations
+- **Dual database** — SQLite (zero-config default) or PostgreSQL, same code path.
+- **Pluggable auth** — static admin account or **GitHub login** (OAuth App web
+  flow or personal token) with org/login allowlists.
+- **Secrets encrypted at rest** (AES-256-GCM), CSRF-protected login, auth on
+  every route.
+- **No CDNs at runtime** — all front-end vendor JS/CSS is served locally.
+- **Docker topologies** — single-instance (SQLite) or distributed (two apps +
+  nginx + Postgres + Redis).
 
 ## Architecture
 
@@ -33,8 +148,9 @@ interactive connection graph, and per-application detail pages.
   a Postgres and a SQLite implementation, selected from the engine at startup.
   PostgreSQL migrations are managed via **dbmate**.
 - **UI:** server-rendered HTML (minijinja) enhanced with **jQuery** and styled
-  with **Tailwind CSS**. All vendor JS/CSS is served locally from `assets/` —
-  no CDNs at runtime.
+  with **Tailwind CSS**; graphs via **AntV G6**, diagrams via **mermaid**, code
+  viewing via **CodeMirror** + **marked**. All vendor JS/CSS is served locally
+  from `assets/` — no CDNs at runtime.
 - **Pluggable strategies:** repository providers (GitHub/GitLab/local), AI
   providers (Anthropic API / Claude CLI), and login strategies.
 
@@ -45,9 +161,13 @@ real PostgreSQL container via **testcontainers**.
 ## Prerequisites
 
 - Rust (stable, edition 2024 capable) and Cargo.
-- Docker (for the database, dbmate, and integration tests).
+- Docker — only for PostgreSQL, dbmate, and the Postgres-backed integration
+  tests. **Not** needed for the zero-config SQLite quick start.
+- An AI provider to enable analysis: an Anthropic API key, or the `claude` CLI
+  installed locally. (Cloning works without one; analysis is skipped until a
+  profile exists.)
 
-## Quick start
+## Quick start (local)
 
 ```bash
 cp .env.example .env                 # adjust as needed
@@ -57,17 +177,17 @@ cp .env.example .env                 # adjust as needed
 cargo run                            # serves on http://localhost:8080
 ```
 
-To use PostgreSQL instead, set `DATABASE_URL` to a `postgres://` URL and apply
-migrations with dbmate:
+If `ADMIN_USER` / `ADMIN_PASS` are unset, an `admin` user with a random password
+is generated on boot and printed once to the logs — use it to sign in.
+
+To use **PostgreSQL** instead, set `DATABASE_URL` to a `postgres://` URL and
+apply migrations with dbmate:
 
 ```bash
-export DATABASE_URL=postgres://postgres:postgres@localhost:5432/platiq
+export DATABASE_URL=postgres://postgres:postgres@localhost:5432/pmp-iq
 bin/up.sh migrate                    # start Postgres + run dbmate (Windows: bin\up.bat migrate)
 cargo run
 ```
-
-If `ADMIN_USER` / `ADMIN_PASS` are unset, an `admin` user with a random password
-is generated on boot and printed once to the logs.
 
 ### GitHub login
 
@@ -97,21 +217,25 @@ Configuration is layered: an **optional `config.yaml`** provides values, the
   [`config.example.yaml`](config.example.yaml) for the full schema.
 
 ```bash
-platiq --config-file /etc/platiq/config.yaml
+pmp-iq --config-file /etc/pmp-iq/config.yaml
 ```
 
 Key settings (env var | `config.yaml` path):
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `DATABASE_URL` \| `database.url` | `sqlite://platiq.db?mode=rwc` | SQLite file (default) or a `postgres://` URL |
+| `DATABASE_URL` \| `database.url` | `sqlite://pmp-iq.db?mode=rwc` | SQLite file (default) or a `postgres://` URL |
 | `PORT` \| `server.port` | `8080` | HTTP port |
+| `BIND_ADDRESS` \| `server.bind_address` | `0.0.0.0` | Bind address |
 | `REDIS_ENABLED` \| `redis.enabled` | `false` | Use Redis to back the distributed lock |
 | `REDIS_URL` \| `redis.url` | `redis://localhost:6379` | Redis connection URL |
 | `AUTH_PROVIDER` \| `auth.provider` | `admin` | Login provider: `admin` or `github` |
 | `ADMIN_USER` / `ADMIN_PASS` \| `auth.*` | — | Static admin login (generated if unset) |
 | `SESSION_SECRET` \| `auth.session_secret` | dev value | Session signing secret |
 | `ENCRYPTION_KEY` \| `auth.encryption_key` | dev value | Base64 32-byte key for secrets at rest |
+| `WEBHOOK_GITHUB_SECRET` \| `webhooks.github_secret` | — | Shared secret for GitHub webhook signatures |
+| `AGENT_MAX_CONCURRENCY` \| `agent.max_concurrency` | `4` | Parallel AI-Agent turns |
+| `GIT_API_MIN_INTERVAL_MS` \| `git_min_interval_ms` | `250` | Min interval between GitHub/GitLab API calls |
 | `LOG_LEVEL` \| `log.level` | `info` | Log level (`RUST_LOG` still wins) |
 | `WORKSPACE_DIR` \| `workspace_dir` | `tmp/workspace` | Where repositories are cloned |
 
@@ -158,16 +282,19 @@ instances. Without them the app's built-in development defaults apply.
 
 ## Front-end assets
 
-jQuery and Tailwind CSS are vendored under `assets/vendor/` and served from
+All third-party JS/CSS is vendored under `assets/vendor/` and served from
 `/assets` — the app makes **no external requests at runtime**. To refresh them:
 
 ```bash
-curl -L https://code.jquery.com/jquery-3.7.1.min.js  -o assets/vendor/jquery.min.js
-curl -L https://cdn.tailwindcss.com/3.4.16           -o assets/vendor/tailwind.js
-curl -L https://unpkg.com/@antv/g6@5/dist/g6.min.js -o assets/vendor/g6.min.js
+curl -L https://code.jquery.com/jquery-3.7.1.min.js   -o assets/vendor/jquery.min.js
+curl -L https://cdn.tailwindcss.com/3.4.16            -o assets/vendor/tailwind.js
+curl -L https://unpkg.com/@antv/g6@5/dist/g6.min.js   -o assets/vendor/g6.min.js
+curl -L https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js -o assets/vendor/mermaid.min.js
+curl -L https://cdn.jsdelivr.net/npm/marked/marked.min.js          -o assets/vendor/marked.min.js
 ```
 
-Shared page behaviour lives in `assets/app.js`.
+CodeMirror (`codemirror.min.js`/`.css` + `codemirror-modes.min.js`) powers the
+read-only file viewer. Shared page behaviour lives in `assets/app.js`.
 
 ## Testing
 
@@ -185,117 +312,63 @@ harness in `tests/common/`.
 
 - **Auth on every route** — all pages and `/api/*` endpoints sit behind a
   session gate; unauthenticated API calls get `401`, pages redirect to `/login`.
+  Public exceptions are the login and OAuth-callback routes and the
+  HMAC-verified `POST /webhooks/github`.
 - **CSRF** — the login form carries a per-session CSRF token, validated on POST.
 - **Secrets at rest** — repository tokens and AI API keys are encrypted with
   AES-256-GCM (`ENCRYPTION_KEY`) and never returned by the API or written to
   logs. Session cookies are `HttpOnly` + `SameSite=Lax` (set `Secure` behind
   TLS).
-- **Fail-fast config** — `Config::from_env()` and `AppState::build` validate
-  configuration (including the encryption key) at startup.
+- **Fail-fast config** — configuration (including the encryption key) is
+  validated at startup in `AppState::build`.
 - **Graceful shutdown** — the server drains in-flight requests on `Ctrl-C`.
-- **Isolation** — each review job clones into its own workspace directory; AI
-  and git access run behind traits with bounded retries and per-repository error
+- **Isolation** — each job clones into its own workspace directory; AI and git
+  access run behind traits with bounded retries and per-repository error
   isolation.
 - **Rate limits & resumable jobs** — GitHub/GitLab calls are throttled
   (`GIT_API_MIN_INTERVAL_MS`); on a rate-limit response the review job
   **self-pauses**, persisting its checkpoint and a resume time from the
-  rate-limit headers. Jobs can also be paused/resumed manually. A
-  **leader-elected controller** (a TTL distributed lock, so only one instance
-  acts when several run) resumes paused executions once their `resume_at`
+  rate-limit headers. Jobs can also be paused/resumed manually. The
+  **leader-elected controller** resumes paused executions once their `resume_at`
   elapses.
-  - **Checkpoint contents** — the review job persists a checkpoint into the
-    execution's `state`: the set of accounts already fully processed plus a
-    running tally (repositories, cloned, failed, analyzed, analysis-failed).
-    On resume it skips finished accounts, so resuming is idempotent and does
-    not re-clone completed work.
+  - **Checkpoint contents** — the review job persists into the execution's
+    `state` the set of accounts already fully processed plus a running tally
+    (repositories, cloned, failed, analyzed, analysis-failed). On resume it skips
+    finished accounts, so resuming is idempotent and does not re-clone completed
+    work.
   - **Resume time** — derived from the rate-limit response headers, in
-    precedence order: `retry-after` (relative seconds), then
-    `x-ratelimit-reset` or `ratelimit-reset` (absolute Unix epoch). The result
-    becomes the execution's `resume_at`.
+    precedence order: `retry-after` (relative seconds), then `x-ratelimit-reset`
+    or `ratelimit-reset` (absolute Unix epoch).
 
 ## Walkthrough
 
-1. Log in (admin from env, or the generated password printed at boot).
-2. **Settings → Repository accounts:** add a GitHub/GitLab/local account, test
+1. **Log in** — admin from env, or the generated password printed at boot.
+2. **Settings → Repository accounts** — add a GitHub/GitLab/local account, test
    the connection, preview the selected repositories.
-3. **Settings → AI agent profiles:** add an Anthropic or Claude-CLI profile and
-   test it.
-   - **Settings → Entity kinds / Properties:** constrain the allowed `kind`
-     vocabulary per entity (so the AI can't emit `vcs` and `vcs-api` for the same
-     thing — out-of-list values become `other`) and define which properties the
-     analyzer extracts into each entity's metadata. Both ship seeded with
-     sensible defaults.
-4. **Jobs:** create a `review-repositories` job (set `ai_profile_id` in its
-   config to enable analysis), run it, and watch the execution logs.
-5. **Platform:** a tabbed section (defaulting to the **Graph**, which shows
-   applications only by default — toggle other entity kinds on via the legend) —
-   browse applications, libraries, infrastructure, tools, cloud providers,
-   services, platforms, external dependencies, users and groups as filterable
-   tables. The application detail page is itself tabbed: an **Overview** pairing a
-   focused connection graph (the app, its dependencies and infrastructure) with
-   its properties (friendly names) and languages; a **Use cases** tab showing a
-   flowchart of use cases — clicking one opens a wide modal with its **Sequence
-   diagram** and **Component diagram** (mermaid, generated per use case, with
-   zoom/reset controls); per-relation tables (services, cloud providers, platforms,
-   libraries, tools, external, components, observability signals — each shown
-   only when present); and an always-present **Members** tab.
+3. **Settings → AI agent profiles** — add/edit/validate an Anthropic or
+   Claude-CLI profile (each exposes a `model` and a reasoning `effort`:
+   `low`/`medium`/`high`/`xhigh`/`max`). An Anthropic profile requires an API key;
+   for Claude-CLI it is optional. When editing, leave the key blank to keep the
+   stored one.
+4. **Settings → Entity kinds / Properties** — constrain the allowed `kind`
+   vocabulary per entity and define which properties the analyzer extracts into
+   each entity's metadata. Both ship seeded with sensible defaults.
+5. **Jobs** — **Run now** on `sync-repositories` for a full-fleet sweep (clone +
+   analyse every selected repo). Analysis runs whenever an AI profile exists
+   (the one pinned in the job config, else the default profile); with no profile
+   anywhere it clones only.
+6. **Platform** — browse the catalog: the **Graph** (applications by default,
+   other kinds via the legend), filterable tables per entity kind, and tabbed
+   per-application detail pages. Use the global **Ask** box to query the catalog
+   in natural language.
+7. **C4 / Dashboard / Campaigns** — view C4 architecture diagrams, the insights
+   dashboard, and batch-change campaigns from the platform tabs.
 
-## Jobs, distributed locks & LLM features
-
-- **Distributed locks** (`src/locks/`): a `DistributedLock` trait — a named lock
-  with a TTL that can be **refreshed** — with an in-memory backend (the default
-  for single-instance/SQLite) and a SQL-backed backend over `controller_locks`
-  for multi-instance deployments. Used for controller leader election and to
-  serialise jobs by resource key.
-- **Scheduling & resilience:** jobs carry a `next_run_at` time polled by the
-  leader-elected controller. A job that can't run right now (e.g. it can't take
-  its lock) returns `JobError::CannotRun { retry_at }`; the runner **reschedules**
-  it (at `retry_at`, or `now + 5m`) and records the execution as `skipped` rather
-  than failed. Each job runs in its own workspace
-  `{WORKSPACE_DIR}/jobs/{job-name}/{job-id}` (persisted across runs, so clones are
-  reused). The `sync-repositories` job takes a per-job lock.
-- **Liveness heartbeat:** the runner heartbeats each execution from a background
-  task for its whole run, so a long-but-healthy job (a slow sync, a long LLM
-  call) is never cancelled mid-run. The leader controller cancels executions
-  whose heartbeat is older than 5 minutes — which only happens once the worker
-  process/runtime has died (its heartbeat task can no longer beat); the runner
-  won't overwrite a stale-cancelled execution with a terminal status.
-- **Live output & metadata:** executions stream raw `output` (the `logs` column)
-  and a `metadata` JSON object that jobs update while running. Any job that uses
-  an LLM wraps its provider in a recorder that writes the **full prompt + response**
-  to the output and accumulates **token usage** into the metadata.
-- **`llm-repository-request` job:** clones (or fetches + rebases) a repository and
-  runs an LLM session over the checkout with a supplied input, serialised by a
-  per-repository lock. The answer and token usage are returned in the execution.
-- **Per-application Sync:** when an application has a configured repository, its
-  detail page shows a **Sync** button that schedules a `sync-repositories` run
-  scoped to just that repository (via a `repository_id` execution param).
-- **Ask the LLM about an application:** the application detail page has a prompt
-  box that queues an `llm-repository-request` for the app's repository and keeps
-  a **history** of the questions asked / being processed, polling until answered.
-- **LLM hints** (`src/hints/`): every section of the application detail (Overview,
-  Use cases, Components, libraries/services/…, and inside each use case) has an
-  *LLM Hints* button that records free-text corrections scoped to the entity type
-  or a specific entity. Hints are keyed by the entity's natural name (so they
-  survive re-syncs) and are injected into the analysis prompt as authoritative
-  corrections on the next sync.
-- **File attribution & File Explorer:** the analyzer records which repository
-  files each use case and component affects; the application detail page has a
-  *File Explorer* **tab** with a lazy file tree of the cloned checkout, a
-  read-only **CodeMirror** viewer with per-language syntax highlighting, and
-  **Markdown rendering** (CodeMirror + marked vendored in `assets/vendor/`). File
-  access is sandboxed to the checkout root (path traversal is rejected).
-- **AI Agent tasks** (`src/agent_tasks/`): the application detail page has an
-  *AI Agent* **tab** for creating change **tasks**. Each task is a multi-turn
-  session with an agentic AI (the Claude CLI provider) that, per turn, checks out
-  a dedicated `agent/<id>` branch, edits files, commits, pushes, and opens (or
-  updates) a **pull request** — serialised per repository with a distributed lock.
-  Follow-up messages refine the change on the same branch/PR; the transcript and
-  live PR link are shown in a chat-style view. Requires a writable repository and
-  a CLI-capable AI profile (PR creation is GitHub-only).
-- **Job execution details:** the execution page streams live output and has a
-  *More Details* modal showing the full record (summary, metadata, params, state)
-  as prettified JSON.
+Per-application actions on the detail page include **Sync** (scope a
+`sync-repositories` run to just that repo), **Ask the LLM**, **LLM Hints**,
+**Collect metrics**, the **File Explorer**, and the **AI Agent** tab for
+change tasks. Every list/table view carries a **↻ Refresh** button (a shared
+`PI.refreshButton` helper in `assets/app.js`).
 
 ## Project layout
 

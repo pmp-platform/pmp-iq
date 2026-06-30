@@ -71,6 +71,9 @@
   // client-side by status / trigger without losing the live poll.
   var allExecs = [];
   var execFilter = { status: "", trigger: "" };
+  // Lookup of job id -> job (for the executions table's Job column). Populated
+  // by loadJobs; executions cascade-delete with their job, so it never misses.
+  var jobsById = {};
 
   function renderExecutions(execs) {
     allExecs = execs;
@@ -100,7 +103,7 @@
     });
     var $body = $("#executions-table tbody").empty();
     if (!execs.length) {
-      $body.append('<tr><td class="p-3 text-slate-400" colspan="5">No executions yet.</td></tr>');
+      $body.append('<tr><td class="p-3 text-slate-400" colspan="6">No executions yet.</td></tr>');
       return;
     }
     execs.forEach(function (e) {
@@ -110,9 +113,12 @@
       } else if (e.status === "paused") {
         action = window.PI.actionButton("Resume", { "data-exec-act": "resume" }, "success");
       }
+      var job = jobsById[e.job_id];
+      var jobName = $("<div>").text(job ? job.name : "—").html();
       var $row = $(
         '<tr class="border-b">' +
-          '<td class="p-3">' + statusBadge(e.status) +
+          '<td class="p-3">' + jobName + "</td>" +
+          "<td>" + statusBadge(e.status) +
             (e.resume_at ? ' <span class="text-xs text-slate-400">resumes ' + e.resume_at + "</span>" : "") + "</td>" +
           "<td>" + (e.trigger ? window.PI.badgeFor(e.trigger) : "—") + "</td>" +
           "<td>" + (e.started_at || "—") + "</td>" +
@@ -127,7 +133,14 @@
   }
 
   function loadJobs() {
-    $.getJSON("/api/jobs").done(function (d) { renderJobs(d.jobs); });
+    $.getJSON("/api/jobs").done(function (d) {
+      jobsById = {};
+      d.jobs.forEach(function (j) { jobsById[j.id] = j; });
+      renderJobs(d.jobs);
+      // Re-render executions so existing rows pick up names without waiting for
+      // the next poll.
+      drawExecutions();
+    });
   }
   function loadExecutions() {
     // `global: false` keeps the recurring poll from flashing the loading mask.
@@ -144,6 +157,9 @@
     loadJobTypes();
     loadAiProfiles();
     setInterval(loadExecutions, 3000);
+
+    window.PI.refreshButton(loadJobs).insertBefore("[data-modal-open='job-modal']");
+    window.PI.refreshButton(loadExecutions).insertAfter("#exec-trigger");
 
     $("#job-type").on("change", updateJobTypeUI);
 
@@ -197,9 +213,11 @@
           $.ajax({ url: "/api/jobs/" + id, method: "DELETE" }).done(loadJobs);
         });
       } else if (act === "run") {
-        $.ajax({ url: "/api/jobs/" + id + "/run", method: "POST" })
-          .done(function () { window.PI.toast("Started", true); loadExecutions(); })
-          .fail(function (x) { window.PI.toast("Failed: " + x.responseText, false); });
+        window.PI.confirm("Run this job now?", function () {
+          $.ajax({ url: "/api/jobs/" + id + "/run", method: "POST" })
+            .done(function () { window.PI.toast("Started", true); loadExecutions(); })
+            .fail(function (x) { window.PI.toast("Failed: " + x.responseText, false); });
+        });
       }
     });
   });
