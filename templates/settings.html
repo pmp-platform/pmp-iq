@@ -9,6 +9,8 @@
     <button data-tab="ai" class="px-3 py-2 border-b-2 border-transparent">AI profiles</button>
     <button data-tab="kinds" class="px-3 py-2 border-b-2 border-transparent">Entity kinds</button>
     <button data-tab="properties" class="px-3 py-2 border-b-2 border-transparent">Properties</button>
+    <button data-tab="prompts" class="px-3 py-2 border-b-2 border-transparent">Extraction prompts</button>
+    <button data-tab="teams" class="px-3 py-2 border-b-2 border-transparent">Teams &amp; roles</button>
   </div>
 
   <div data-panel="accounts">
@@ -45,6 +47,25 @@
   <div data-panel="properties">
     <p class="text-slate-500 text-sm mb-3">Properties the analyzer extracts into each entity’s metadata. Only these keys are kept on import; any other metadata key is discarded.</p>
     <div id="properties-root" class="space-y-4"></div>
+  </div>
+
+  <div data-panel="prompts">
+    <p class="text-slate-500 text-sm mb-3">Edit the per-section extraction prompt the analyzer (and the metrics collector) uses. The strict kind/property vocabulary and JSON schema are always injected, so edits can never weaken the contract. Disable a section to omit it; reset restores the shipped default.</p>
+    <div id="prompts-root" class="space-y-4"></div>
+  </div>
+
+  <div data-panel="teams">
+    <p class="text-slate-500 text-sm mb-3">Teams own applications (maintainers may act only on apps their team owns); roles gate actions (viewer / maintainer / admin). Admin only.</p>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="bg-white rounded-lg shadow border border-slate-200 p-3">
+        <div class="font-semibold text-sm mb-2">Teams</div>
+        <div id="teams-root" class="text-sm"></div>
+      </div>
+      <div class="bg-white rounded-lg shadow border border-slate-200 p-3">
+        <div class="font-semibold text-sm mb-2">Roles</div>
+        <div id="roles-root" class="text-sm"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -144,4 +165,6 @@
 <script src="/assets/ai-profiles.js?v={{ asset_version }}" defer></script>
 <script src="/assets/entity-kinds.js?v={{ asset_version }}" defer></script>
 <script src="/assets/entity-properties.js?v={{ asset_version }}" defer></script>
+<script src="/assets/extraction-prompts.js?v={{ asset_version }}" defer></script>
+<script src="/assets/teams.js?v={{ asset_version }}" defer></script>
 {% endblock %}

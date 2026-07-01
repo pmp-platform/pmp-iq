@@ -5,11 +5,12 @@ use super::model::{AgentTask, AgentTaskMessage, AgentTaskTarget, NewMessage, rol
 use super::repository::AgentTaskRepository;
 use crate::accounts::{AccountService, PullRequestSpec, RepositoryAccount};
 use crate::ai::{AiProfileService, AiProvider, AiProviderDeps, AiProviderFactory, AiRequest};
+use crate::cost::LlmUsageRepository;
 use crate::error::AppError;
 use crate::git::{CloneRequest, CommitRequest, GitClient, PushRequest};
 use crate::jobs::model::{JobInput, TriggerType};
 use crate::jobs::repository::JobRepository;
-use crate::jobs::{JobContext, JobError, JobOutcome, JobType, RecordingAiProvider};
+use crate::jobs::{JobContext, JobError, JobOutcome, JobType, RecordingAiProvider, UsageAttribution};
 use crate::locks::{DistributedLock, lock_keys};
 use crate::repositories::{RepoRecord, RepoRecordRepository};
 use crate::workspace::{JobLocator, Workspace};
@@ -36,6 +37,8 @@ pub struct AgentTaskDeps {
     pub ai: AiProfileService,
     pub ai_deps: AiProviderDeps,
     pub lock: Arc<dyn DistributedLock>,
+    /// LLM usage recording for cost rollups (M39).
+    pub usage: Arc<dyn LlmUsageRepository>,
 }
 
 /// Per-execution input carried on `job_executions.params`.
@@ -155,6 +158,7 @@ impl AgentTaskJob {
     async fn provider(
         &self,
         ctx: &JobContext,
+        application_id: Uuid,
         profile_id: Uuid,
     ) -> Result<RecordingAiProvider, JobError> {
         let profile = self
@@ -165,7 +169,12 @@ impl AgentTaskJob {
             .map_err(|e| JobError::Failed(e.to_string()))?;
         let inner = AiProviderFactory::build(&profile, &self.deps.ai_deps)
             .map_err(|e| JobError::Failed(e.to_string()))?;
-        Ok(ctx.recording_provider(inner))
+        let attribution = UsageAttribution {
+            application_id: Some(application_id),
+            ai_profile_id: Some(profile_id),
+            model: profile.model(),
+        };
+        Ok(ctx.recording_provider_priced(inner, self.deps.usage.clone(), attribution))
     }
 
     /// Run the agent over the checkout with the full transcript as context.
@@ -175,7 +184,7 @@ impl AgentTaskJob {
         state: &TurnState<'_>,
         profile_id: Uuid,
     ) -> Result<String, JobError> {
-        let provider = self.provider(ctx, profile_id).await?;
+        let provider = self.provider(ctx, state.task.application_id, profile_id).await?;
         let messages = self
             .deps
             .tasks
@@ -472,6 +481,7 @@ mod tests {
             default_branch: Some("develop".into()),
             local_path: None,
             last_commit_sha: None,
+            last_analyzed_sha: None,
         }
     }
 
@@ -498,6 +508,13 @@ mod tests {
             execution_id: None,
             created_at: Utc::now(),
         }
+    }
+
+    /// A permissive LLM-usage mock (recording is best-effort, never asserted).
+    fn noop_usage() -> Arc<dyn crate::cost::LlmUsageRepository> {
+        let mut m = crate::cost::repository::MockLlmUsageRepository::new();
+        m.expect_record().returning(|_| Ok(()));
+        Arc::new(m)
     }
 
     fn deps(
@@ -527,6 +544,7 @@ mod tests {
             ai: AiProfileService::new(Arc::new(MockAiProfileRepository::new()), ai_deps.clone()),
             ai_deps,
             lock: Arc::new(lock),
+            usage: noop_usage(),
         }
     }
 
@@ -750,6 +768,7 @@ mod tests {
             ai: cli_ai_service(),
             ai_deps: cli_ai_deps(),
             lock: Arc::new(lock),
+            usage: noop_usage(),
         }
     }
 

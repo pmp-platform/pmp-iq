@@ -11,55 +11,6 @@ use std::sync::Arc;
 const MAX_FILE_BYTES: usize = 8000;
 const MAX_RETRIES: u32 = 1;
 
-const SYSTEM_PROMPT: &str = "You are a software platform analyst. Given files from a repository, \
-extract structured metadata. Respond with ONLY a JSON object (no prose, no markdown fences) of the \
-shape: {\"application\":{\"name\":string,\"app_type\":string,\"description\":string,\
-\"primary_language\":string,\"metadata\":object},\"languages\":[{\"name\":string,\"percentage\":number}],\
-\"libraries\":[{\"name\":string,\"ecosystem\":string,\"version\":string,\"scope\":string,\"metadata\":object}],\
-\"infrastructure\":[{\"name\":string,\"kind\":string,\"version\":string,\"usage\":string,\"metadata\":object}],\
-\"tools\":[{\"name\":string,\"kind\":string,\"version\":string,\"usage\":string,\"metadata\":object}],\
-\"cloud_providers\":[{\"name\":string,\"kind\":string,\"version\":string,\"usage\":string,\"metadata\":object}],\
-\"services\":[{\"name\":string,\"kind\":string,\"version\":string,\"usage\":string,\"metadata\":object}],\
-\"platforms\":[{\"name\":string,\"kind\":string,\"version\":string,\"usage\":string,\"metadata\":object}],\
-\"external\":[{\"name\":string,\"kind\":string,\"version\":string,\"usage\":string,\"metadata\":object}],\
-\"dependencies\":[{\"target_name\":string,\"kind\":string,\"description\":string,\"component\":string,\"metadata\":object}],\
-\"users\":[{\"username\":string,\"email\":string,\"groups\":[string],\"metadata\":object}],\
-\"groups\":[{\"name\":string,\"metadata\":object}],\
-\"access\":[{\"principal_type\":\"user\"|\"group\",\"principal_name\":string,\"access_level\":string}],\
-\"components\":[{\"name\":string,\"kind\":string,\"description\":string,\"metadata\":object,\"files\":[string],\
-\"observability_signals\":[{\"name\":string,\"kind\":string,\"description\":string,\"metadata\":object}]}],\
-\"use_cases\":[{\"name\":string,\"description\":string,\"metadata\":object,\"components\":[string],\"files\":[string],\
-\"diagrams\":[{\"name\":string,\"kind\":string,\"description\":string,\"content\":string,\"metadata\":object}]}]}. \
-Use empty arrays when unknown. \
-Classify each discovered dependency into exactly one array: \
-'infrastructure' = self-hosted runtime backing services (database, cache, queue, storage, message broker); \
-'tools' = build/orchestration/dev tooling, not runtime (docker compose, gradle, maven, make, npm, terraform, CI like github actions); \
-'cloud_providers' = cloud platforms (AWS, GCP, Azure, Cloudflare); \
-'services' = third-party or internal network APIs the app calls (Stripe, Twilio, an internal auth-service); \
-'platforms' = SaaS for observability/identity/CI/error tracking (Datadog, Auth0, Sentry); \
-'external' = any other external dependency that fits none of the above; \
-'dependencies' = the outbound connections THIS app makes to other applications or services, detected from \
-code (HTTP/REST/gRPC clients, database/cache/queue connections, SDK calls, configured service URLs or \
-hostnames). For each, set 'target_name' to the application or service it connects to, 'kind' to the \
-connection type (http, grpc, db, queue, cache, etc.), and 'component' to the EXACT name of the component \
-(from the 'components' array) that makes the connection. A target may also appear in 'services'/'external' \
-(the catalog of things used); 'dependencies' additionally records the connection edge and its component. \
-Never place the same thing in more than one of the catalog arrays (infrastructure/tools/cloud_providers/services/platforms/external). \
-Populate 'users', 'groups' and 'access' ONLY from a CODEOWNERS file (its code owners and owning teams); \
-leave all three as empty arrays when there is no CODEOWNERS file. Repository membership is collected \
-separately from the provider, so do not infer members from commits, READMEs or other files. \
-'components' are the internal building blocks of THIS application (e.g. controllers, models, services); \
-give each a thorough 'description' and list the observability signals (metrics, traces, logs) it emits. \
-'use_cases' are the capabilities the application fulfils; give each a thorough 'description', reference \
-the involved components by their exact 'name', and ALWAYS include at least these two diagrams: \
-(1) a sequence diagram with 'kind' set to \"sequence\" whose 'content' is a mermaid sequenceDiagram \
-tracing the interaction between the actors and the involved components for this use case; and (2) a \
-component diagram with 'kind' set to \"component\" whose 'content' is a mermaid flowchart/graph showing \
-the involved components and how they connect. Each diagram's 'content' MUST be valid mermaid source that \
-renders standalone (no markdown fences), and its 'kind' names the mermaid diagram type. \
-For every component and every use case, set 'files' to the list of repository-relative paths (e.g. \
-\"src/auth/login.rs\") it is implemented in or affects; use an empty array when unknown.";
-
 /// Files to look for when building analysis context.
 const SIGNAL_FILES: &[&str] = &[
     "Cargo.toml",
@@ -91,76 +42,29 @@ pub struct AnalysisInput<'a> {
     /// User-provided per-entity hints (authoritative corrections) for the
     /// application this repository maps to; empty on a first sync.
     pub hints: Vec<crate::hints::EntityHint>,
+    /// When set (M41 incremental), only the listed files changed — re-extract
+    /// only the components/use cases that involve them; everything else is left
+    /// to the existing model (the writer merges via `write_partial`).
+    pub changed_files: Option<Vec<String>>,
 }
 
-/// The prompt field that carries the kind for an entity type.
-fn kind_field_label(entity: &str) -> String {
-    match entity {
-        "applications" => "application app_type".to_string(),
-        "libraries" => "library ecosystem".to_string(),
-        other => format!("{other} kind"),
-    }
-}
-
-/// Render one allowed kind as `id` (or `id (description)` when described).
-fn describe_kind(k: &crate::platform::KindDef) -> String {
-    if k.description.trim().is_empty() {
-        k.kind_id.clone()
-    } else {
-        format!("{} ({})", k.kind_id, k.description.trim())
-    }
-}
-
-/// Render one property as `id (type)` (or `id (type, description)`).
-fn describe_property(p: &crate::platform::PropertyDef) -> String {
-    if p.description.trim().is_empty() {
-        format!("{} ({})", p.prop_id, p.data_type)
-    } else {
-        format!("{} ({}, {})", p.prop_id, p.data_type, p.description.trim())
-    }
-}
-
-/// Append the configured allowed-kinds and extraction-properties guidance to the
-/// base system prompt. Both are strict: the model must use only the listed
-/// values/keys.
+/// Compose the analyzer system prompt from the configured per-section templates
+/// (M34), always injecting the strict kinds/properties vocabulary and schema.
 fn build_system_prompt(config: &AnalysisConfig) -> String {
-    let mut prompt = String::from(SYSTEM_PROMPT);
-    let kind_sections: Vec<String> = config
-        .kinds
-        .iter()
-        .filter(|(_, v)| !v.is_empty())
-        .map(|(entity, kinds)| {
-            let list = kinds.iter().map(describe_kind).collect::<Vec<_>>().join(", ");
-            format!("{}: [{}]", kind_field_label(entity), list)
-        })
-        .collect();
-    if !kind_sections.is_empty() {
-        prompt.push_str(
-            "\nAllowed kind values per type — output EXACTLY one listed id (the value before any \
-             parenthesis) for each item's kind; never invent a value. An item whose kind is not \
-             listed will be discarded, so prefer the closest listed id. ",
-        );
-        prompt.push_str(&kind_sections.join("; "));
-        prompt.push('.');
-    }
-    let prop_sections: Vec<String> = config
-        .properties
-        .iter()
-        .filter(|(_, v)| !v.is_empty())
-        .map(|(entity, props)| {
-            let list = props.iter().map(describe_property).collect::<Vec<_>>().join(", ");
-            format!("{entity} — {list}")
-        })
-        .collect();
-    if !prop_sections.is_empty() {
-        prompt.push_str(
-            "\nPopulate each entity's metadata object ONLY with these keys (when known); do not add \
-             any other keys (unlisted keys are discarded): ",
-        );
-        prompt.push_str(&prop_sections.join("; "));
-        prompt.push('.');
-    }
-    prompt
+    crate::platform::prompts::compose_system_prompt(&config.prompts, config)
+}
+
+/// The incremental focus instruction (M41) appended to the user prompt: re-extract
+/// only the components/use cases touching the changed files, leaving the rest of
+/// the model untouched (the writer merges the partial result).
+fn incremental_focus(changed: &[String]) -> String {
+    let list = changed.join(", ");
+    format!(
+        "\n\nINCREMENTAL UPDATE: only these files changed since the last analysis: [{list}]. \
+         Return ONLY the 'application', 'components', 'use_cases' and 'endpoints' that involve these \
+         files (with their full sub-fields). Leave every other top-level array empty — they are \
+         preserved from the existing model and must not be re-derived here."
+    )
 }
 
 /// Errors from analysis.
@@ -222,6 +126,9 @@ impl FileAnalyzer {
         for use_case in &mut result.use_cases {
             use_case.files.retain(|f| self.file_exists(checkout_path, f));
         }
+        for endpoint in &mut result.endpoints {
+            endpoint.files.retain(|f| self.file_exists(checkout_path, f));
+        }
     }
 
     /// Whether a repository-relative path resolves to a real file in the checkout.
@@ -239,6 +146,9 @@ impl RepositoryAnalyzer for FileAnalyzer {
         let context = self.gather_context(&input.checkout_path);
         let mut prompt = Self::build_prompt(&input.repo_full_name, &context);
         prompt.push_str(&crate::hints::render_hints(&input.hints));
+        if let Some(changed) = &input.changed_files {
+            prompt.push_str(&incremental_focus(changed));
+        }
         let system = build_system_prompt(&input.config);
 
         let mut last_error = String::new();
@@ -329,6 +239,7 @@ mod tests {
             provider: &provider,
             config: AnalysisConfig::default(),
             hints: vec![],
+            changed_files: None,
         };
         let result = analyzer.analyze(input).await.unwrap();
         assert_eq!(result.application.name, "api");
@@ -364,6 +275,7 @@ mod tests {
             provider: &provider,
             config: AnalysisConfig::default(),
             hints: vec![],
+            changed_files: None,
         };
         let result = analyzer.analyze(input).await.unwrap();
         assert_eq!(result.components[0].files, vec!["src/real.rs".to_string()]);
@@ -385,6 +297,7 @@ mod tests {
             provider: &provider,
             config: AnalysisConfig::default(),
             hints: vec![],
+            changed_files: None,
         };
         assert!(matches!(analyzer.analyze(input).await, Err(AnalysisError::Invalid(_))));
     }

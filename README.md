@@ -80,11 +80,64 @@ of the code.
   Members tab.
 - **Codebase map** — a bounded directory/module structure graph derived from the
   cloned checkout, rendered as an interactive tree.
-- **C4 model views & export** — projects the platform graph into a Structurizr
-  DSL and a C4 System-Context mermaid diagram (applications by default;
-  dependencies opt-in).
+- **C4 model views & export** — projects the platform graph into Structurizr
+  DSL and C4 mermaid diagrams at three levels: **Context** (fleet system
+  landscape, applications by default; dependencies opt-in), **Container** (one
+  application's datastores/services + external boundaries) and **Component**
+  (its internal components, with inter-component and component→external edges).
+  Drill Context → Container → Component from the C4 tab.
 - **Insights dashboard** — fleet rollups, leaderboards (best/worst coverage and
-  complexity), and group-by breakdowns over the latest quality metrics.
+  complexity), and group-by breakdowns over the latest quality metrics, plus
+  **metric trends & charts**: coverage/complexity trend lines over time,
+  distribution histograms, a coverage-vs-complexity scatter (bubble = LOC), a
+  portfolio treemap, and per-application sparklines — all drawn with a locally
+  vendored chart renderer (no CDN).
+- **LLM cost & budgeting** — every recorded LLM call is priced (a configurable
+  per-model price map) and rolled up by application, AI profile, job type and
+  period. Spend budgets (global/profile/job/application, daily/monthly) warn or
+  hard-stop work that would exceed the limit (rescheduling via the existing
+  `CannotRun` path), shown in the Insights cost panel.
+- **Configurable extraction prompts** — each analysis section (applications,
+  components, use cases, dependencies, members, diagrams, observability) and the
+  metrics-collection prompt is individually editable in Settings, with the strict
+  kind/property vocabulary and JSON schema always injected so edits can never
+  break extraction. Disable a section to omit it; reset restores the default.
+- **Semantic search & duplicate detection** — catalog entities (applications,
+  components, use cases) are embedded so you can search by meaning ("apps that
+  send email"), find "similar applications", and surface "possible duplicates"
+  (similarity clusters). Search falls back to substring matching when embeddings
+  aren't configured; generation re-embeds only changed entities.
+- **Change timeline & audit** — each sync records precise model changes
+  (applications and dependencies created/updated/removed, keyed by stable natural
+  keys) as a per-application and platform-wide timeline, with a two-point diff
+  summary. Mutating operator actions (logins, prompt edits, …) are recorded in an
+  admin-only audit log.
+- **RBAC, teams & multi-tenant** — roles (viewer / maintainer / admin) gate
+  actions; teams own applications so maintainers can only act on apps their team
+  owns; admins manage teams and roles. An optional, feature-flagged multi-tenant
+  mode scopes the visible application catalog to the caller's tenant.
+- **Version currency & tech radar** — each app's dependencies are assessed
+  against a configurable policy (how many majors behind, end-of-life status),
+  fleet currency is ranked, and a tech radar (adopt/trial/assess/hold) is curated.
+- **Operator gamification** — XP, levels, skills and badges, derived purely from
+  the recorded action/audit history (no new tracking), with a per-operator profile
+  and a leaderboard.
+- **Production-readiness scorecards** — configurable checks (owner, coverage, CI,
+  tests, vulns, observability, docs) are evaluated against each app's model +
+  metrics + ownership into a weighted score and a bronze/silver/gold/at-risk
+  level, per application and ranked across the fleet.
+- **API contracts** — each application's exposed HTTP/gRPC/GraphQL operations are
+  extracted, and outbound dependencies resolve to the producer's specific
+  endpoint, so you can see an endpoint's consumers (impact) on the app's API panel.
+- **DORA metrics** — deployment and incident events (captured via GitHub
+  `deployment_status`/`release` webhooks or a generic event API) derive the four
+  DORA measures (deployment frequency, lead time, change-failure rate, MTTR) and
+  a performance tier per application and fleet-wide, recorded as trending metrics.
+- **Incremental analysis** — a scoped re-sync (webhook push or a scheduled run)
+  diffs the changed files since the last analyzed commit and re-analyzes only the
+  affected components/use cases, merging them into the existing model. Structural
+  changes (manifests / CI / unreachable base commit) safely fall back to a full
+  analysis; full-fleet manual syncs stay full.
 
 ### AI analysis
 - **LLM-driven repository analysis** that produces the entire platform model,
@@ -119,6 +172,10 @@ of the code.
   PR progress.
 - **PR watcher** — polls open PRs, finishes merged/closed ones, and on new review
   comments / merge conflicts / failed checks enqueues an agent fix turn.
+- **Auto-remediation** — operator-defined rules map a finding (metric below/above
+  a threshold, a failed scorecard check, or an end-of-life dependency) to a
+  remediation. An on-demand evaluation sweeps the fleet and proposes deduplicated
+  remediations; approving one opens an agent task for the affected application.
 - **Webhooks** — HMAC-verified GitHub webhooks trigger immediate PR reconciles
   and merge-driven re-syncs.
 

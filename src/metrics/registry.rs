@@ -58,6 +58,11 @@ const CATEGORIES: &[(&str, MetricCategory)] = &[
     ("dependency_count", MetricCategory::Security),
     ("secrets_detected", MetricCategory::Security),
     ("max_dep_age_days", MetricCategory::Security),
+    // Delivery performance — DORA (M47), derived from deployment/incident events.
+    ("dora_deploy_freq_weekly", MetricCategory::Delivery),
+    ("dora_lead_time_hours", MetricCategory::Delivery),
+    ("dora_change_failure_rate", MetricCategory::Delivery),
+    ("dora_mttr_hours", MetricCategory::Delivery),
     // Architecture — derived from the catalog/graph (no LLM).
     ("fan_out", MetricCategory::Architecture),
     ("external_dependency_count", MetricCategory::Architecture),

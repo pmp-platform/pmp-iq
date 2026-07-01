@@ -3,11 +3,16 @@
 //! tabs and feeds the analyzer's prompt + kind normalization.
 
 pub mod model;
+pub mod prompt_repository;
 pub mod repository;
 pub mod service;
 
 pub use model::{
     DataType, EntityKind, EntityKindInput, EntityProperty, EntityPropertyInput,
+};
+pub use prompt_repository::{
+    ExtractionPromptRepository, PgExtractionPromptRepository, SqliteExtractionPromptRepository,
+    StoredPrompt,
 };
 pub use repository::{
     EntityKindRepository, EntityPropertyRepository, PgEntityKindRepository,

@@ -15,6 +15,22 @@ pub struct AiProfile {
     pub enabled: bool,
 }
 
+/// The platform default model when a profile does not pin one.
+pub const DEFAULT_MODEL: &str = "claude-opus-4-8";
+
+impl AiProfile {
+    /// The model id this profile uses (from its `config.model`), defaulting to
+    /// [`DEFAULT_MODEL`]. Used to attribute and price LLM usage (M39).
+    pub fn model(&self) -> String {
+        self.config
+            .get("model")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(DEFAULT_MODEL)
+            .to_string()
+    }
+}
+
 /// Fields needed to create or update a profile (pre-encrypted secrets).
 #[derive(Debug, Clone)]
 pub struct AiProfileInput {

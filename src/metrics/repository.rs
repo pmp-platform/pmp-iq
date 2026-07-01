@@ -18,6 +18,22 @@ pub trait ApplicationMetricsRepository: Send + Sync {
     async fn latest_for_application(&self, application_id: Uuid) -> RepoResult<Vec<ApplicationMetric>>;
     /// The latest value of each metric across all applications (for the dashboard).
     async fn latest_all(&self) -> RepoResult<Vec<ApplicationMetric>>;
+    /// Timestamped readings of a metric across the fleet since `since` (trends).
+    async fn history(&self, metric_key: &str, since: DateTime<Utc>) -> RepoResult<Vec<super::series::Point>>;
+    /// Fleet readings of a metric grouped by an (allowlisted) application column.
+    async fn history_by_dimension(
+        &self,
+        metric_key: &str,
+        dimension: &str,
+        since: DateTime<Utc>,
+    ) -> RepoResult<Vec<(String, super::series::Point)>>;
+    /// Timestamped readings of a metric for one application (sparklines).
+    async fn app_history(
+        &self,
+        application_id: Uuid,
+        metric_key: &str,
+        since: DateTime<Utc>,
+    ) -> RepoResult<Vec<super::series::Point>>;
 }
 
 #[derive(FromRow)]
@@ -71,10 +87,16 @@ macro_rules! metrics_impl {
                 metrics: &[Metric],
             ) -> RepoResult<()> {
                 for m in metrics {
+                    // Bind `collected_at` explicitly so the write uses sqlx's own
+                    // timestamp encoding, identical to the `collected_at >= $since`
+                    // history/series filters. Leaning on SQLite's CURRENT_TIMESTAMP
+                    // default stores a space-separated, offset-less string that
+                    // sorts before sqlx's RFC3339 bound value, wrongly excluding
+                    // same-period rows at period boundaries.
                     sqlx::query(&$xform(
                         "INSERT INTO application_metrics \
-                           (id, application_id, metric_key, value, unit, source, category) \
-                         VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                           (id, application_id, metric_key, value, unit, source, category, collected_at) \
+                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
                     ))
                     .bind(Uuid::new_v4())
                     .bind(application_id)
@@ -83,6 +105,7 @@ macro_rules! metrics_impl {
                     .bind(m.unit.as_deref())
                     .bind(source)
                     .bind(category_for(&m.key).as_str())
+                    .bind(Utc::now())
                     .execute(&self.pool)
                     .await?;
                 }
@@ -110,6 +133,56 @@ macro_rules! metrics_impl {
                 .fetch_all(&self.pool)
                 .await?;
                 Ok(rows.into_iter().map(ApplicationMetric::from).collect())
+            }
+
+            async fn history(&self, metric_key: &str, since: DateTime<Utc>) -> RepoResult<Vec<super::series::Point>> {
+                let rows: Vec<(DateTime<Utc>, f64)> = sqlx::query_as(&$xform(
+                    "SELECT collected_at, value FROM application_metrics \
+                     WHERE metric_key=$1 AND collected_at >= $2 ORDER BY collected_at",
+                ))
+                .bind(metric_key)
+                .bind(since)
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(rows.into_iter().map(|(at, value)| super::series::Point { at, value }).collect())
+            }
+
+            async fn history_by_dimension(
+                &self,
+                metric_key: &str,
+                dimension: &str,
+                since: DateTime<Utc>,
+            ) -> RepoResult<Vec<(String, super::series::Point)>> {
+                // The caller must pass an allowlisted column (see series::allowed_dimension).
+                if !super::series::allowed_dimension(dimension) {
+                    return Ok(vec![]);
+                }
+                let sql = $xform(&format!(
+                    "SELECT COALESCE(a.{dimension}, 'unknown'), m.collected_at, m.value \
+                     FROM application_metrics m JOIN applications a ON a.id=m.application_id \
+                     WHERE m.metric_key=$1 AND m.collected_at >= $2 ORDER BY m.collected_at"
+                ));
+                let rows: Vec<(String, DateTime<Utc>, f64)> =
+                    sqlx::query_as(&sql).bind(metric_key).bind(since).fetch_all(&self.pool).await?;
+                Ok(rows.into_iter().map(|(dim, at, value)| (dim, super::series::Point { at, value })).collect())
+            }
+
+            async fn app_history(
+                &self,
+                application_id: Uuid,
+                metric_key: &str,
+                since: DateTime<Utc>,
+            ) -> RepoResult<Vec<super::series::Point>> {
+                let rows: Vec<(DateTime<Utc>, f64)> = sqlx::query_as(&$xform(
+                    "SELECT collected_at, value FROM application_metrics \
+                     WHERE application_id=$1 AND metric_key=$2 AND collected_at >= $3 ORDER BY collected_at",
+                ))
+                .bind(application_id)
+                .bind(metric_key)
+                .bind(since)
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(rows.into_iter().map(|(at, value)| super::series::Point { at, value }).collect())
             }
         }
     };

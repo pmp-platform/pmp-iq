@@ -5,8 +5,18 @@
 <h1 class="text-2xl font-bold my-3">C4 model</h1>
 
 <div class="bg-white rounded-lg shadow border border-slate-200 p-3 mb-3">
-  <div class="flex items-center justify-between mb-2">
-    <div class="text-sm font-semibold">System context</div>
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+    <div class="flex items-center gap-2 text-sm">
+      <span class="font-semibold">Level</span>
+      <select id="c4-level" class="border border-slate-200 rounded text-xs p-1">
+        <option value="context">Context (fleet)</option>
+        <option value="container">Container (one app)</option>
+        <option value="component">Component (one app)</option>
+      </select>
+      <select id="c4-app" class="border border-slate-200 rounded text-xs p-1 hidden">
+        <option value="">Select an application…</option>
+      </select>
+    </div>
     <label class="flex items-center gap-2 text-xs text-slate-600">
       <input type="checkbox" id="c4-deps" /> Include dependencies (infrastructure, services, external…)
     </label>

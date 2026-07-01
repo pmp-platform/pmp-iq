@@ -33,6 +33,37 @@
 
 <div id="app-detail"></div>
 
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3">
+    <div class="text-sm font-semibold mb-2">Similar applications</div>
+    <div id="similar-apps" class="text-sm text-slate-500">Loading…</div>
+  </div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3">
+    <div class="text-sm font-semibold mb-2">Recent changes</div>
+    <div id="app-timeline" class="text-sm text-slate-500">Loading…</div>
+  </div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3">
+    <div class="text-sm font-semibold mb-2">Metric trends</div>
+    <div id="metric-sparklines"></div>
+  </div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3 lg:col-span-2">
+    <div class="text-sm font-semibold mb-2">API endpoints</div>
+    <div id="api-endpoints" class="text-sm text-slate-500">Loading…</div>
+  </div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3 lg:col-span-2">
+    <div class="text-sm font-semibold mb-2">Production readiness</div>
+    <div id="scorecard" class="text-sm text-slate-500">Loading…</div>
+  </div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3 lg:col-span-2">
+    <div class="text-sm font-semibold mb-2">Dependency currency</div>
+    <div id="dep-currency" class="text-sm text-slate-500">Loading…</div>
+  </div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3 lg:col-span-2">
+    <div class="text-sm font-semibold mb-2">Delivery performance (DORA)</div>
+    <div id="dora-app" class="text-sm text-slate-500">Loading…</div>
+  </div>
+</div>
+
 <div id="uc-modal" class="modal hidden fixed inset-0 bg-black/40 z-50 items-center justify-center p-2">
   <div class="bg-white rounded-lg shadow-lg w-[96vw] max-w-none h-[94vh] flex flex-col">
     <div class="flex items-start justify-between gap-4 p-5 pb-3 border-b border-slate-200">
@@ -59,4 +90,12 @@
 <script src="/assets/vendor/marked.min.js?v={{ asset_version }}" defer></script>
 <script src="/assets/platform-app-files.js?v={{ asset_version }}" defer></script>
 <script src="/assets/platform-app-agent.js?v={{ asset_version }}" defer></script>
+<script src="/assets/semantic.js?v={{ asset_version }}" defer></script>
+<script src="/assets/timeline.js?v={{ asset_version }}" defer></script>
+<script src="/assets/vendor/minichart.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-trends.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-api.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-scorecard.js?v={{ asset_version }}" defer></script>
+<script src="/assets/tech-radar.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-dora.js?v={{ asset_version }}" defer></script>
 {% endblock %}

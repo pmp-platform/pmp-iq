@@ -18,17 +18,20 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ImageExt};
 use testcontainers_modules::postgres::Postgres;
 
-/// Build application state for a given database handle, with a known admin
-/// (`admin` / `admin`).
-pub fn build_state_db(db: Database) -> AppState {
+/// The base test environment (known admin + a unique workspace dir).
+fn base_env() -> MapEnv {
     let workspace = std::env::temp_dir()
         .join(format!("pi-workspace-{}", uuid::Uuid::new_v4()))
         .to_string_lossy()
         .to_string();
-    let env = MapEnv::new()
+    MapEnv::new()
         .with("ADMIN_USER", "admin")
         .with("ADMIN_PASS", "admin")
-        .with("WORKSPACE_DIR", &workspace);
+        .with("WORKSPACE_DIR", &workspace)
+}
+
+/// Build application state from a database handle and a prepared environment.
+fn state_from_env(db: Database, env: MapEnv) -> AppState {
     let config = Config::load(&env).unwrap();
     let boot = AuthService::from_config(
         &config.auth,
@@ -38,6 +41,25 @@ pub fn build_state_db(db: Database) -> AppState {
     )
     .unwrap();
     AppState::build(config, db, Arc::new(boot.service), None).unwrap()
+}
+
+/// Build application state for a given database handle, with a known admin
+/// (`admin` / `admin`).
+pub fn build_state_db(db: Database) -> AppState {
+    state_from_env(db, base_env())
+}
+
+/// Build SQLite-backed state with an embedding provider configured (M40). The
+/// endpoint is only contacted by `search`; `similar`/`duplicates` use the model
+/// id and stored vectors, so a placeholder endpoint suffices for them.
+pub fn build_state_sqlite_with_embeddings(db: &SqliteDb, endpoint: &str, model: &str) -> AppState {
+    let env = base_env().with("EMBEDDING_ENDPOINT", endpoint).with("EMBEDDING_MODEL", model);
+    state_from_env(db.database(), env)
+}
+
+/// Build SQLite-backed state with multi-tenant isolation enabled (M37).
+pub fn build_state_sqlite_multitenant(db: &SqliteDb) -> AppState {
+    state_from_env(db.database(), base_env().with("MULTITENANT_ENABLED", "true"))
 }
 
 /// Build application state backed by the Postgres test container.

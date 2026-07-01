@@ -204,10 +204,14 @@ async fn sqlite_platform_model_lists_details_and_graph() {
     assert!(!seeded_props["properties"].as_array().unwrap().is_empty(), "properties seeded");
 
     // Seeded config is strict: an entity with an unlisted kind is dropped on import.
-    let cfg = AnalysisConfigService::new(store::entity_kinds(&db), store::entity_properties(&db))
-        .load()
-        .await
-        .unwrap();
+    let cfg = AnalysisConfigService::new(
+        store::entity_kinds(&db),
+        store::entity_properties(&db),
+        store::extraction_prompts(&db),
+    )
+    .load()
+    .await
+    .unwrap();
     let mut bogus = AnalysisResult::parse(
         r#"{"application":{"name":"x"},"services":[{"name":"Mystery","kind":"totally-made-up"},{"name":"Pay","kind":"payments"}]}"#,
     )

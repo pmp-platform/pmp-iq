@@ -6,10 +6,12 @@ pub mod job;
 pub mod model;
 pub mod registry;
 pub mod repository;
+pub mod series;
 
 pub use job::{CollectMetricsDeps, CollectMetricsJob, JOB_TYPE, ensure_job};
 pub use model::{ApplicationMetric, Metric};
 pub use registry::{MetricCategory, category_for};
+pub use series::{Bucket, Point, SeriesPoint, allowed_dimension, daily_average, histogram};
 pub use repository::{
     ApplicationMetricsRepository, PgApplicationMetricsRepository, SqliteApplicationMetricsRepository,
 };

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Remediation · pmp-iq{% endblock %}
+{% block content %}
+{% include "_platform_tabs.html" %}
+<h1 class="text-2xl font-bold my-3">Auto-remediation</h1>
+
+<div class="bg-white rounded-lg shadow border border-slate-200 p-3 mb-4">
+  <div class="flex items-center justify-between mb-2">
+    <div class="text-sm font-semibold">Proposed remediations</div>
+    <button id="rem-evaluate" class="bg-blue-600 text-white rounded px-2 py-1 text-xs">Evaluate now</button>
+  </div>
+  <div id="remediations" class="text-sm text-slate-500">Loading…</div>
+</div>
+
+<div class="bg-white rounded-lg shadow border border-slate-200 p-3">
+  <div class="text-sm font-semibold mb-2">Rules</div>
+  <div id="rules" class="text-sm text-slate-500">Loading…</div>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-1 mt-3 text-xs">
+    <input id="rule-name" class="border rounded p-1" placeholder="rule name">
+    <select id="rule-trigger" class="border rounded p-1">
+      <option value="metric_below">metric_below</option>
+      <option value="metric_above">metric_above</option>
+      <option value="scorecard_failed">scorecard_failed</option>
+      <option value="dep_eol">dep_eol</option>
+    </select>
+    <input id="rule-params" class="border rounded p-1 font-mono" placeholder='params e.g. {"metric":"coverage_pct","threshold":70}'>
+    <input id="rule-prompt" class="border rounded p-1" placeholder="agent prompt">
+  </div>
+  <button id="rule-add" class="bg-blue-600 text-white rounded px-2 py-1 mt-2 text-xs">Add rule</button>
+</div>
+
+<script src="/assets/remediation.js?v={{ asset_version }}" defer></script>
+{% endblock %}

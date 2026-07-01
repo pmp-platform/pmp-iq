@@ -107,11 +107,13 @@ async fn login_submit(
         password: form.password,
     };
     match state.auth.authenticate(&creds).await {
-        Ok(principal) => {
+        Ok(mut principal) => {
+            enrich_role(&state, &mut principal).await;
             session
                 .insert(SESSION_PRINCIPAL_KEY, &principal)
                 .await
                 .map_err(AppError::internal)?;
+            state.audit.record(&principal.username, "login", None, serde_json::json!({})).await;
             Ok(Redirect::to("/").into_response())
         }
         Err(_) => {
@@ -187,14 +189,23 @@ async fn github_callback(
         None => return denied(&state, &session, "GitHub sign-in was cancelled").await,
     };
     match resolve_principal(gh, code).await {
-        Some(principal) => {
+        Some(mut principal) => {
+            enrich_role(&state, &mut principal).await;
             session
                 .insert(SESSION_PRINCIPAL_KEY, &principal)
                 .await
                 .map_err(AppError::internal)?;
+            state.audit.record(&principal.username, "login", None, serde_json::json!({})).await;
             Ok(Redirect::to("/").into_response())
         }
         None => denied(&state, &session, "Access denied for this GitHub account").await,
+    }
+}
+
+/// Replace a principal's roles with its effective RBAC role (M37).
+async fn enrich_role(state: &AppState, principal: &mut Principal) {
+    if let Ok(role) = state.rbac.role_for(&principal.username).await {
+        principal.roles = vec![role.as_str().to_string()];
     }
 }
 

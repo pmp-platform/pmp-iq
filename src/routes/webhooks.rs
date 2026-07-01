@@ -61,10 +61,52 @@ async fn github_webhook(State(state): State<AppState>, headers: HeaderMap, body:
 async fn dispatch_event(state: &AppState, event: &str, payload: &Value) -> AppResult<()> {
     match event {
         "push" => handle_push(state, payload).await,
+        "deployment_status" | "release" => handle_deployment(state, event, payload).await,
         "pull_request" | "pull_request_review" | "pull_request_review_comment" | "issue_comment"
         | "check_run" | "check_suite" => trigger_watcher(state).await,
         _ => Ok(()),
     }
+}
+
+/// A successful GitHub `deployment_status` (state=success) or a published
+/// `release` records a DORA deployment for the mapped application (M47).
+async fn handle_deployment(state: &AppState, event: &str, payload: &Value) -> AppResult<()> {
+    let full_name = payload["repository"]["full_name"].as_str().unwrap_or("");
+    if full_name.is_empty() {
+        return Ok(());
+    }
+    // For deployment_status, only record terminal success/failure states.
+    let succeeded = match event {
+        "deployment_status" => match payload["deployment_status"]["state"].as_str().unwrap_or("") {
+            "success" => true,
+            "failure" | "error" => false,
+            _ => return Ok(()), // pending/in_progress/queued — ignore
+        },
+        _ => true, // a published release
+    };
+    let repos = state.repo_records.list().await?;
+    let Some(repo) = repos.into_iter().find(|r| r.full_name == full_name) else {
+        return Ok(()); // not a tracked repository
+    };
+    let Some(app_id) = state.platform.repository_application(repo.id).await? else {
+        return Ok(()); // no application mapped yet
+    };
+    let environment = payload["deployment"]["environment"].as_str().unwrap_or("production").to_string();
+    let sha = payload["deployment"]["sha"]
+        .as_str()
+        .or_else(|| payload["release"]["tag_name"].as_str())
+        .map(str::to_string);
+    let _ = state
+        .dora
+        .record_deployment(crate::dora::NewDeployment {
+            application_id: app_id,
+            environment,
+            sha,
+            succeeded,
+            first_commit_at: None,
+        })
+        .await?;
+    Ok(())
 }
 
 /// Trigger an immediate PR-watcher reconcile (deduped: skip if one is in flight).
@@ -95,9 +137,10 @@ async fn handle_push(state: &AppState, payload: &Value) -> AppResult<()> {
         .ok()
         .and_then(|ps| ps.iter().find(|p| p.enabled).or_else(|| ps.first()).map(|p| p.id));
     let job_id = crate::review::ensure_sync_job(state.jobs_repo.as_ref(), profile).await?;
+    // Webhook-scoped re-syncs default to incremental analysis (M41).
     let _ = state
         .runner
-        .start_with_params(job_id, "webhook", json!({ "repository_id": repo.id }))
+        .start_with_params(job_id, "webhook", json!({ "repository_id": repo.id, "incremental": true }))
         .await
         .map_err(|e: AppError| e);
     Ok(())

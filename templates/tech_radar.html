@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Tech radar · pmp-iq{% endblock %}
+{% block content %}
+{% include "_platform_tabs.html" %}
+<h1 class="text-2xl font-bold my-3">Tech radar &amp; currency</h1>
+
+<div class="bg-white rounded-lg shadow border border-slate-200 p-3 mb-4">
+  <div class="text-sm font-semibold mb-2">Tech radar</div>
+  <div id="radar" class="text-sm text-slate-500">Loading…</div>
+  <div class="flex flex-wrap gap-1 mt-3 text-xs items-center">
+    <select id="radar-quadrant" class="border rounded p-1">
+      <option value="language">language</option><option value="framework">framework</option>
+      <option value="infrastructure">infrastructure</option><option value="tool">tool</option>
+    </select>
+    <input id="radar-name" class="border rounded p-1" placeholder="name">
+    <select id="radar-ring" class="border rounded p-1">
+      <option value="adopt">adopt</option><option value="trial">trial</option>
+      <option value="assess">assess</option><option value="hold">hold</option>
+    </select>
+    <input id="radar-note" class="border rounded p-1 w-40" placeholder="note (optional)">
+    <button id="radar-add" class="bg-blue-600 text-white rounded px-2 py-1">Add</button>
+  </div>
+</div>
+
+<div class="bg-white rounded-lg shadow border border-slate-200 p-3">
+  <div class="text-sm font-semibold mb-2">Least-current applications</div>
+  <div id="fleet-currency" class="text-sm text-slate-500">Loading…</div>
+</div>
+
+<script src="/assets/tech-radar.js?v={{ asset_version }}" defer></script>
+{% endblock %}

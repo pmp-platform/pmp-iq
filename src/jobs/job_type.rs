@@ -56,6 +56,17 @@ impl JobContext {
         )
     }
 
+    /// Like [`recording_provider`](Self::recording_provider) but also appends a
+    /// priced `llm_usage` row per call for cost rollups (M39).
+    pub fn recording_provider_priced(
+        &self,
+        inner: Box<dyn AiProvider>,
+        usage: Arc<dyn crate::cost::LlmUsageRepository>,
+        attribution: super::recording::UsageAttribution,
+    ) -> RecordingAiProvider {
+        self.recording_provider(inner).with_usage(usage, attribution)
+    }
+
     /// Persist a resume checkpoint without pausing.
     pub async fn save_state(&self, state: &Value) {
         let _ = self.executions.save_state(self.execution_id, state).await;

@@ -16,6 +16,8 @@ pub trait RepoRecordRepository: Send + Sync {
     async fn mark_cloned(&self, id: Uuid, local_path: &str, commit_sha: &str) -> RepoResult<()>;
     /// Record that a repository was analysed.
     async fn mark_reviewed(&self, id: Uuid) -> RepoResult<()>;
+    /// Record the commit just successfully analyzed (M41 incremental).
+    async fn mark_analyzed(&self, id: Uuid, sha: &str) -> RepoResult<()>;
     async fn get(&self, id: Uuid) -> RepoResult<RepoRecord>;
     async fn list(&self) -> RepoResult<Vec<RepoRecord>>;
 }
@@ -30,6 +32,7 @@ struct Row {
     default_branch: Option<String>,
     local_path: Option<String>,
     last_commit_sha: Option<String>,
+    last_analyzed_sha: Option<String>,
 }
 
 impl From<Row> for RepoRecord {
@@ -43,12 +46,13 @@ impl From<Row> for RepoRecord {
             default_branch: row.default_branch,
             local_path: row.local_path,
             last_commit_sha: row.last_commit_sha,
+            last_analyzed_sha: row.last_analyzed_sha,
         }
     }
 }
 
 const COLS: &str = "id, account_id, name, full_name, clone_url, default_branch, \
-     local_path, last_commit_sha";
+     local_path, last_commit_sha, last_analyzed_sha";
 
 macro_rules! repo_record_impl {
     ($name:ident, $pool:ty, $xform:path) => {
@@ -71,7 +75,7 @@ macro_rules! repo_record_impl {
                        name = EXCLUDED.name, clone_url = EXCLUDED.clone_url, \
                        default_branch = EXCLUDED.default_branch, updated_at = CURRENT_TIMESTAMP \
                      RETURNING id, account_id, name, full_name, clone_url, default_branch, \
-                               local_path, last_commit_sha",
+                               local_path, last_commit_sha, last_analyzed_sha",
                 ))
                 .bind(id)
                 .bind(input.account_id)
@@ -103,6 +107,17 @@ macro_rules! repo_record_impl {
                      updated_at=CURRENT_TIMESTAMP WHERE id=$1",
                 ))
                 .bind(id)
+                .execute(&self.pool)
+                .await?;
+                Ok(())
+            }
+
+            async fn mark_analyzed(&self, id: Uuid, sha: &str) -> RepoResult<()> {
+                sqlx::query(&$xform(
+                    "UPDATE repositories SET last_analyzed_sha=$2, updated_at=CURRENT_TIMESTAMP WHERE id=$1",
+                ))
+                .bind(id)
+                .bind(sha)
                 .execute(&self.pool)
                 .await?;
                 Ok(())

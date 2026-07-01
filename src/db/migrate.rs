@@ -36,6 +36,18 @@ pub const PG_MIGRATIONS: Migrations = &[
     ("021_application_metrics", include_str!("../../db/migrations/20260101000021_application_metrics.sql")),
     ("022_campaigns", include_str!("../../db/migrations/20260101000022_campaigns.sql")),
     ("023_metric_category", include_str!("../../db/migrations/20260101000023_metric_category.sql")),
+    ("024_llm_cost", include_str!("../../db/migrations/20260101000024_llm_cost.sql")),
+    ("025_extraction_prompts", include_str!("../../db/migrations/20260101000025_extraction_prompts.sql")),
+    ("026_entity_embeddings", include_str!("../../db/migrations/20260101000026_entity_embeddings.sql")),
+    ("027_changes_and_audit", include_str!("../../db/migrations/20260101000027_changes_and_audit.sql")),
+    ("028_rbac_teams", include_str!("../../db/migrations/20260101000028_rbac_teams.sql")),
+    ("029_last_analyzed_sha", include_str!("../../db/migrations/20260101000029_last_analyzed_sha.sql")),
+    ("030_api_endpoints", include_str!("../../db/migrations/20260101000030_api_endpoints.sql")),
+    ("031_scorecards", include_str!("../../db/migrations/20260101000031_scorecards.sql")),
+    ("032_gamification", include_str!("../../db/migrations/20260101000032_gamification.sql")),
+    ("033_techradar", include_str!("../../db/migrations/20260101000033_techradar.sql")),
+    ("034_remediation", include_str!("../../db/migrations/20260101000034_remediation.sql")),
+    ("035_dora", include_str!("../../db/migrations/20260101000035_dora.sql")),
 ];
 
 /// Embedded SQLite migrations (dbmate format).
@@ -63,6 +75,18 @@ pub const SQLITE_MIGRATIONS: Migrations = &[
     ("021_application_metrics", include_str!("../../db/migrations_sqlite/20260101000021_application_metrics.sql")),
     ("022_campaigns", include_str!("../../db/migrations_sqlite/20260101000022_campaigns.sql")),
     ("023_metric_category", include_str!("../../db/migrations_sqlite/20260101000023_metric_category.sql")),
+    ("024_llm_cost", include_str!("../../db/migrations_sqlite/20260101000024_llm_cost.sql")),
+    ("025_extraction_prompts", include_str!("../../db/migrations_sqlite/20260101000025_extraction_prompts.sql")),
+    ("026_entity_embeddings", include_str!("../../db/migrations_sqlite/20260101000026_entity_embeddings.sql")),
+    ("027_changes_and_audit", include_str!("../../db/migrations_sqlite/20260101000027_changes_and_audit.sql")),
+    ("028_rbac_teams", include_str!("../../db/migrations_sqlite/20260101000028_rbac_teams.sql")),
+    ("029_last_analyzed_sha", include_str!("../../db/migrations_sqlite/20260101000029_last_analyzed_sha.sql")),
+    ("030_api_endpoints", include_str!("../../db/migrations_sqlite/20260101000030_api_endpoints.sql")),
+    ("031_scorecards", include_str!("../../db/migrations_sqlite/20260101000031_scorecards.sql")),
+    ("032_gamification", include_str!("../../db/migrations_sqlite/20260101000032_gamification.sql")),
+    ("033_techradar", include_str!("../../db/migrations_sqlite/20260101000033_techradar.sql")),
+    ("034_remediation", include_str!("../../db/migrations_sqlite/20260101000034_remediation.sql")),
+    ("035_dora", include_str!("../../db/migrations_sqlite/20260101000035_dora.sql")),
 ];
 
 /// Migrations matching the database's engine.

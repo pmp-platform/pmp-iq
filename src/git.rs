@@ -42,6 +42,15 @@ pub enum GitError {
     Git(String),
 }
 
+/// The files changed between two commits (M41). `base_missing` is true when the
+/// `from` commit can't be resolved (force-push/rebase) — the caller then falls
+/// back to a full analysis.
+#[derive(Debug, Clone, Default)]
+pub struct ChangedFiles {
+    pub paths: Vec<String>,
+    pub base_missing: bool,
+}
+
 /// Clones or updates repositories into local working copies.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
@@ -63,6 +72,15 @@ pub trait GitClient: Send + Sync {
 
     /// Force-push `branch` to `origin` (the agent owns its own branch).
     async fn push_branch(&self, request: PushRequest) -> Result<(), GitError>;
+
+    /// The repo-relative paths that changed between two commits in a checkout
+    /// (M41). When `from_sha` is unresolvable, returns `base_missing = true`.
+    async fn changed_files(
+        &self,
+        checkout: String,
+        from_sha: String,
+        to_sha: String,
+    ) -> Result<ChangedFiles, GitError>;
 }
 
 /// `git2`-backed implementation. Blocking git work runs on a blocking thread.
@@ -244,5 +262,43 @@ impl GitClient for Git2Client {
         tokio::task::spawn_blocking(move || Self::run_push(request))
             .await
             .map_err(|e| GitError::Git(e.to_string()))?
+    }
+
+    async fn changed_files(
+        &self,
+        checkout: String,
+        from_sha: String,
+        to_sha: String,
+    ) -> Result<ChangedFiles, GitError> {
+        tokio::task::spawn_blocking(move || Self::run_changed_files(checkout, from_sha, to_sha))
+            .await
+            .map_err(|e| GitError::Git(e.to_string()))?
+    }
+}
+
+impl Git2Client {
+    /// Diff two commit trees and collect the changed repo-relative paths. An
+    /// unresolvable `from_sha` (force-push/rebase) returns `base_missing`.
+    fn run_changed_files(checkout: String, from_sha: String, to_sha: String) -> Result<ChangedFiles, GitError> {
+        let repo = git2::Repository::open(&checkout).map_err(|e| GitError::Git(e.to_string()))?;
+        let from_tree = match repo.revparse_single(&from_sha).and_then(|o| o.peel_to_tree()) {
+            Ok(tree) => tree,
+            // Base commit gone (history rewritten) → signal a full re-analysis.
+            Err(_) => return Ok(ChangedFiles { paths: vec![], base_missing: true }),
+        };
+        let to_tree = repo
+            .revparse_single(&to_sha)
+            .and_then(|o| o.peel_to_tree())
+            .map_err(|e| GitError::Git(format!("target commit '{to_sha}' not found: {e}")))?;
+        let diff = repo
+            .diff_tree_to_tree(Some(&from_tree), Some(&to_tree), None)
+            .map_err(|e| GitError::Git(e.to_string()))?;
+        let mut paths = std::collections::BTreeSet::new();
+        for delta in diff.deltas() {
+            if let Some(p) = delta.new_file().path().or_else(|| delta.old_file().path()) {
+                paths.insert(p.to_string_lossy().replace('\\', "/"));
+            }
+        }
+        Ok(ChangedFiles { paths: paths.into_iter().collect(), base_missing: false })
     }
 }

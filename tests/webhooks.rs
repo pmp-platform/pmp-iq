@@ -13,6 +13,7 @@ use pmp_iq::app::{AppState, build_router};
 use pmp_iq::auth::{Argon2Hasher, AuthService, RandomSecretGenerator};
 use pmp_iq::config::{Config, MapEnv};
 use pmp_iq::db::Database;
+use pmp_iq::platform::AnalysisResult;
 use pmp_iq::repositories::RepoRecordInput;
 use pmp_iq::store;
 use sha2::Sha256;
@@ -21,6 +22,10 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 const PUSH_BODY: &str = r#"{"ref":"refs/heads/main","repository":{"default_branch":"main","full_name":"org/api"}}"#;
+const DEPLOY_STATUS_BODY: &str = r#"{"deployment_status":{"state":"success"},"deployment":{"environment":"production","sha":"abc123"},"repository":{"full_name":"org/api"}}"#;
+const ANALYSIS: &str = r#"{"application":{"name":"api","app_type":"api","description":"d","primary_language":"Rust","metadata":{}},
+"languages":[],"libraries":[],"infrastructure":[],"tools":[],"cloud_providers":[],"services":[],"platforms":[],
+"external":[],"dependencies":[],"components":[],"use_cases":[],"endpoints":[],"users":[],"groups":[],"access":[]}"#;
 
 async fn seed_repo(db: &Database) {
     let account = store::accounts(db)
@@ -46,6 +51,35 @@ async fn seed_repo(db: &Database) {
         })
         .await
         .unwrap();
+}
+
+/// Seed the repo plus a platform application mapped to it (so deployment events
+/// resolve repository → application).
+async fn seed_repo_and_app(db: &Database) -> Uuid {
+    let account = store::accounts(db)
+        .create(AccountInput {
+            name: "gh".into(),
+            provider_type: ProviderType::Github,
+            auth_type: AuthType::Token,
+            base_url: None,
+            credentials_enc: None,
+            selection_mode: SelectionMode::All,
+            selection_value: None,
+            enabled: true,
+        })
+        .await
+        .unwrap();
+    let repo = store::repo_records(db)
+        .upsert(RepoRecordInput {
+            account_id: account.id,
+            name: "api".into(),
+            full_name: "org/api".into(),
+            clone_url: "https://example.invalid/org/api.git".into(),
+            default_branch: Some("main".into()),
+        })
+        .await
+        .unwrap();
+    store::platform_writer(db).write(repo.id, &AnalysisResult::parse(ANALYSIS).unwrap()).await.unwrap()
 }
 
 fn secret_state(db: Database, secret: &str) -> AppState {
@@ -93,6 +127,32 @@ async fn default_branch_push_enqueues_a_sync() {
     // A sync execution was enqueued by the push.
     let execs = store::job_executions(&sqlite.database()).list(10).await.unwrap();
     assert!(!execs.is_empty(), "push should enqueue a sync execution");
+}
+
+#[tokio::test]
+async fn successful_deployment_status_records_a_dora_deployment() {
+    let sqlite = SqliteDb::start().await;
+    let app_id = seed_repo_and_app(&sqlite.database()).await;
+    let app = build_router(build_state_sqlite(&sqlite));
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/webhooks/github")
+                .header("X-GitHub-Event", "deployment_status")
+                .header("content-type", "application/json")
+                .body(Body::from(DEPLOY_STATUS_BODY))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+
+    let since = chrono::Utc::now() - chrono::Duration::days(1);
+    let deploys = store::dora(&sqlite.database()).deployments_for(app_id, since).await.unwrap();
+    assert_eq!(deploys.len(), 1);
+    assert!(deploys[0].succeeded);
+    assert_eq!(deploys[0].sha.as_deref(), Some("abc123"));
 }
 
 #[tokio::test]

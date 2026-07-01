@@ -5,15 +5,20 @@
 use crate::accounts::{AccountService, ProviderType, RemoteRepo, RepositoryAccount};
 use crate::ai::{AiProfileService, AiProvider, AiProviderDeps, AiProviderFactory};
 use crate::analysis_config::AnalysisConfigService;
+use crate::cost::{BudgetGuard, BudgetScope, LlmBudgetRepository, LlmUsageRepository, ScopeRef};
+use crate::db::RepoResult;
 use crate::error::AppError;
 use crate::git::{CloneRequest, GitClient};
 use crate::hints::{EntityHint, EntityHintRepository};
 use crate::jobs::model::{Job, JobInput, TriggerType, merge_object};
 use crate::jobs::repository::JobRepository;
-use crate::jobs::{JobContext, JobError, JobOutcome, JobType};
+use crate::jobs::{JobContext, JobError, JobOutcome, JobType, UsageAttribution, enforce_budget};
 use crate::locks::{DistributedLock, Lease, lock_keys};
 use crate::platform::catalog::resolve_dependencies;
-use crate::platform::{AnalysisInput, Catalog, MemberInfo, PlatformQuery, PlatformWriter, RepositoryAnalyzer};
+use crate::platform::{
+    AnalysisInput, AnalysisResult, Catalog, MemberInfo, PlatformQuery, PlatformWriter,
+    RepositoryAnalyzer,
+};
 use crate::repositories::{RepoRecord, RepoRecordInput, RepoRecordRepository};
 use crate::workspace::{JobLocator, Workspace};
 use async_trait::async_trait;
@@ -44,6 +49,17 @@ pub struct ReviewDeps {
     pub analysis_config: AnalysisConfigService,
     pub lock: Arc<dyn DistributedLock>,
     pub hints: Arc<dyn EntityHintRepository>,
+    /// LLM usage recording + budget enforcement (M39).
+    pub usage: Arc<dyn LlmUsageRepository>,
+    pub budgets: Arc<dyn LlmBudgetRepository>,
+    pub budget: Arc<BudgetGuard>,
+}
+
+/// A resolved AI provider plus the profile/model backing it (for usage cost).
+struct ResolvedProvider {
+    provider: Box<dyn AiProvider>,
+    profile_id: Uuid,
+    model: String,
 }
 
 /// Running tally for the job summary (also persisted in the resume checkpoint).
@@ -96,6 +112,8 @@ struct AnalyzeInput<'a> {
     account: &'a RepositoryAccount,
     provider: &'a dyn AiProvider,
     catalog: Option<&'a Catalog>,
+    /// The freshly-cloned HEAD commit (M41), recorded as last-analyzed on success.
+    head_sha: String,
 }
 
 /// Clones and analyses repositories from configured accounts.
@@ -113,7 +131,7 @@ impl ReviewRepositoriesJob {
     async fn build_provider(
         &self,
         ctx: &JobContext,
-    ) -> Result<Option<Box<dyn AiProvider>>, JobError> {
+    ) -> Result<Option<ResolvedProvider>, JobError> {
         let Some(id) = resolve_profile_id(&self.deps.ai, &ctx.config).await? else {
             return Ok(None);
         };
@@ -125,7 +143,7 @@ impl ReviewRepositoriesJob {
             .map_err(|e| JobError::Failed(e.to_string()))?;
         let provider = AiProviderFactory::build(&profile, &self.deps.ai_deps)
             .map_err(|e| JobError::Failed(e.to_string()))?;
-        Ok(Some(provider))
+        Ok(Some(ResolvedProvider { provider, profile_id: id, model: profile.model() }))
     }
 
     /// Process one account. A rate-limit error is returned verbatim
@@ -175,7 +193,7 @@ impl ReviewRepositoriesJob {
             }
         };
         match self.do_clone(ctx, &record, task.remote, task.token).await {
-            Ok(path) => {
+            Ok((path, head_sha)) => {
                 tally.cloned += 1;
                 if let Some(provider) = analysis.provider {
                     let input = AnalyzeInput {
@@ -184,6 +202,7 @@ impl ReviewRepositoriesJob {
                         account: task.account,
                         provider,
                         catalog: analysis.catalog,
+                        head_sha,
                     };
                     self.analyze(ctx, input, tally).await;
                 }
@@ -201,7 +220,7 @@ impl ReviewRepositoriesJob {
         record: &RepoRecord,
         remote: &RemoteRepo,
         token: Option<String>,
-    ) -> Result<String, String> {
+    ) -> Result<(String, String), String> {
         let dest = self
             .deps
             .workspace
@@ -224,7 +243,43 @@ impl ReviewRepositoriesJob {
             .await
             .map_err(|e| e.to_string())?;
         ctx.log(&format!("cloned {}", remote.full_name)).await;
-        Ok(info.path)
+        Ok((info.path, info.commit_sha))
+    }
+
+    /// Decide full vs incremental analysis for this repo (M41) and, for
+    /// incremental, the changed file set. Full unless the job is in incremental
+    /// mode, a prior analyzed commit exists, the HEAD advanced, the base is
+    /// reachable, and no structural file changed.
+    async fn plan_mode(&self, ctx: &JobContext, input: &AnalyzeInput<'_>) -> (crate::incremental::Mode, Vec<String>) {
+        let incremental = ctx.params.get("incremental").and_then(Value::as_bool).unwrap_or(false);
+        let Some(last) = input.record.last_analyzed_sha.as_deref() else {
+            return (crate::incremental::Mode::Full, vec![]);
+        };
+        if !incremental || last == input.head_sha {
+            return (crate::incremental::Mode::Full, vec![]);
+        }
+        match self
+            .deps
+            .git
+            .changed_files(input.checkout_path.to_string(), last.to_string(), input.head_sha.clone())
+            .await
+        {
+            Ok(cf) => {
+                let mode = crate::incremental::decide(Some(last), cf.base_missing, &cf.paths);
+                ctx.log(&format!(
+                    "{} analysis for {} ({} changed file(s))",
+                    if matches!(mode, crate::incremental::Mode::Incremental) { "incremental" } else { "full" },
+                    input.record.full_name,
+                    cf.paths.len()
+                ))
+                .await;
+                (mode, cf.paths)
+            }
+            Err(e) => {
+                ctx.log(&format!("changed-file diff failed for {} — full analysis: {e}", input.record.full_name)).await;
+                (crate::incremental::Mode::Full, vec![])
+            }
+        }
     }
 
     /// Resolve an optional per-execution scope: when `params.repository_id` is
@@ -247,6 +302,8 @@ impl ReviewRepositoriesJob {
 
     async fn analyze(&self, ctx: &JobContext, input: AnalyzeInput<'_>, tally: &mut Tally) {
         let record = input.record;
+        let (mode, changed) = self.plan_mode(ctx, &input).await;
+        let incremental = matches!(mode, crate::incremental::Mode::Incremental);
         let cfg = self.deps.analysis_config.load().await.unwrap_or_default();
         let analysis = AnalysisInput {
             checkout_path: input.checkout_path.to_string(),
@@ -254,6 +311,7 @@ impl ReviewRepositoriesJob {
             provider: input.provider,
             config: cfg.clone(),
             hints: self.hints_for(record.id).await,
+            changed_files: incremental.then_some(changed),
         };
         let mut result = match self.deps.analyzer.analyze(analysis).await {
             Ok(mut result) => {
@@ -266,24 +324,49 @@ impl ReviewRepositoriesJob {
                 return;
             }
         };
-        if let Some(catalog) = input.catalog {
-            let n = resolve_dependencies(&mut result, catalog, Some(input.provider)).await;
-            if n > 0 {
-                ctx.log(&format!("resolved {n} dependency target(s) for {}", record.full_name)).await;
+        // Dependency canonicalisation + member reconcile run on full analyses
+        // only; incremental syncs touch only the affected app sub-entities.
+        if !incremental {
+            if let Some(catalog) = input.catalog {
+                let n = resolve_dependencies(&mut result, catalog, Some(input.provider)).await;
+                if n > 0 {
+                    ctx.log(&format!("resolved {n} dependency target(s) for {}", record.full_name)).await;
+                }
             }
         }
-        match self.deps.writer.write(record.id, &result).await {
+        match self.persist(ctx, &input, incremental, &result).await {
             Ok(app_id) => {
                 let _ = self.deps.repositories.mark_reviewed(record.id).await;
+                let _ = self.deps.repositories.mark_analyzed(record.id, &input.head_sha).await;
                 tally.analyzed += 1;
                 ctx.log(&format!("analysed {}", record.full_name)).await;
-                self.reconcile_members(ctx, input.account, record, app_id).await;
+                if !incremental {
+                    self.reconcile_members(ctx, input.account, record, app_id).await;
+                }
             }
             Err(e) => {
                 tally.analysis_failed += 1;
                 ctx.log(&format!("ANALYSIS WRITE FAILED {}: {e}", record.full_name)).await;
             }
         }
+    }
+
+    /// Write the result: a partial merge for an incremental sync of an existing
+    /// application, else a full write. Returns the application id.
+    async fn persist(
+        &self,
+        _ctx: &JobContext,
+        input: &AnalyzeInput<'_>,
+        incremental: bool,
+        result: &AnalysisResult,
+    ) -> RepoResult<Uuid> {
+        if incremental {
+            if let Some(app_id) = self.deps.platform.repository_application(input.record.id).await? {
+                self.deps.writer.write_partial(app_id, result).await?;
+                return Ok(app_id);
+            }
+        }
+        self.deps.writer.write(input.record.id, result).await
     }
 
     /// Fetch the repository's current members from the provider and reconcile
@@ -375,8 +458,24 @@ impl ReviewRepositoriesJob {
     /// refreshing the lock lease between accounts.
     async fn sweep(&self, ctx: &JobContext, lease: &mut Lease) -> Result<JobOutcome, JobError> {
         // Wrap the provider so all analysis prompts/responses are written to the
-        // execution output and token usage is recorded in its metadata.
-        let recorder = self.build_provider(ctx).await?.map(|p| ctx.recording_provider(p));
+        // execution output and token usage is recorded in its metadata + priced
+        // into the cost table (M39).
+        let recorder = match self.build_provider(ctx).await? {
+            Some(resolved) => {
+                let scopes = [
+                    ScopeRef::new(BudgetScope::Profile, Some(resolved.profile_id)),
+                    ScopeRef::new(BudgetScope::Job, Some(ctx.job_id)),
+                ];
+                enforce_budget(&self.deps.budget, self.deps.budgets.as_ref(), &scopes, ctx).await?;
+                let attribution = UsageAttribution {
+                    application_id: None,
+                    ai_profile_id: Some(resolved.profile_id),
+                    model: resolved.model,
+                };
+                Some(ctx.recording_provider_priced(resolved.provider, self.deps.usage.clone(), attribution))
+            }
+            None => None,
+        };
         let provider: Option<&dyn AiProvider> = recorder.as_ref().map(|r| r as &dyn AiProvider);
         // Snapshot the known-entity catalog once (best-effort) so analysis can
         // canonicalize dependency targets without re-querying per repo.
@@ -560,7 +659,7 @@ async fn backfill_profile(
         JobInput {
             job_type: job.job_type.clone(),
             name: job.name.clone(),
-            trigger_type: job.trigger_type.clone(),
+            trigger_type: job.trigger_type,
             cron_expr: job.cron_expr.clone(),
             config,
             enabled: job.enabled,

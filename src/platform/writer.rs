@@ -3,6 +3,7 @@
 //! body backs both the Postgres and SQLite implementations.
 
 use super::analysis::{AnalysisResult, AppInfo, MemberInfo};
+use super::changes::{Change, application_change, diff_keys};
 use super::linked::LINKED;
 use crate::db::{RepoResult, identity, to_sqlite};
 use async_trait::async_trait;
@@ -18,6 +19,11 @@ const UNKNOWN_VERSION: &str = "unknown";
 pub trait PlatformWriter: Send + Sync {
     /// Persist `result` for the given repository; returns the application id.
     async fn write(&self, repository_id: Uuid, result: &AnalysisResult) -> RepoResult<Uuid>;
+
+    /// Partial merge (M41 incremental): upsert only the components/use cases in
+    /// `result` for `app_id`, leaving untouched entities (and their attribution)
+    /// intact — no delete-and-recreate, no orphan prune.
+    async fn write_partial(&self, app_id: Uuid, result: &AnalysisResult) -> RepoResult<()>;
 
     /// Reconcile the current git-provider members of `app_id`: upsert each as a
     /// `member` (with role + permissions) and flip any previously-recorded member
@@ -38,6 +44,71 @@ macro_rules! platform_writer_impl {
         impl $name {
             pub fn new(pool: $pool) -> Self {
                 Self { pool }
+            }
+
+            /// Prior `(id, app_type, description)` for an app keyed by its repo
+            /// (M36), captured before the upsert overwrites it.
+            async fn app_prior(&self, repository_id: Uuid) -> RepoResult<Option<(Uuid, String, String)>> {
+                let row: Option<(Uuid, Option<String>, Option<String>)> = sqlx::query_as(&$xform(
+                    "SELECT id, app_type, description FROM applications WHERE repository_id=$1",
+                ))
+                .bind(repository_id)
+                .fetch_optional(&self.pool)
+                .await?;
+                Ok(row.map(|(id, t, d)| (id, t.unwrap_or_default(), d.unwrap_or_default())))
+            }
+
+            /// The current dependency target names for an app (its natural keys).
+            async fn dependency_keys(&self, app_id: Uuid) -> RepoResult<Vec<String>> {
+                let rows: Vec<(String,)> = sqlx::query_as(&$xform(
+                    "SELECT target_name FROM application_dependencies WHERE source_app_id=$1",
+                ))
+                .bind(app_id)
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(rows.into_iter().map(|(t,)| t).collect())
+            }
+
+            /// Emit the application + dependency change events for this sync.
+            async fn emit_changes(
+                &self,
+                app_id: Uuid,
+                prior_app: &Option<(Uuid, String, String)>,
+                prior_deps: &[String],
+                result: &AnalysisResult,
+            ) -> RepoResult<()> {
+                let next_type = result.application.app_type.clone().unwrap_or_default();
+                let next_desc = result.application.description.clone().unwrap_or_default();
+                let prior = prior_app.as_ref().map(|(_, t, d)| (t.as_str(), d.as_str()));
+                let mut changes: Vec<Change> = Vec::new();
+                if let Some(c) = application_change(&result.application.name, prior, &next_type, &next_desc) {
+                    changes.push(c);
+                }
+                let next_deps: Vec<String> =
+                    result.dependencies.iter().map(|d| d.target_name.clone()).collect();
+                changes.extend(diff_keys("dependency", prior_deps, &next_deps));
+                for change in &changes {
+                    self.record_change(app_id, change).await?;
+                }
+                Ok(())
+            }
+
+            async fn record_change(&self, app_id: Uuid, change: &Change) -> RepoResult<()> {
+                let detail = if change.detail.is_null() { None } else { Some(change.detail.clone()) };
+                sqlx::query(&$xform(
+                    "INSERT INTO platform_changes \
+                       (id, application_id, entity_type, entity_key, change, detail) \
+                     VALUES ($1,$2,$3,$4,$5,$6)",
+                ))
+                .bind(Uuid::new_v4())
+                .bind(app_id)
+                .bind(&change.entity_type)
+                .bind(&change.entity_key)
+                .bind(change.kind.as_str())
+                .bind(detail)
+                .execute(&self.pool)
+                .await?;
+                Ok(())
             }
 
             async fn upsert_application(&self, repository_id: Uuid, app: &AppInfo) -> RepoResult<Uuid> {
@@ -79,7 +150,9 @@ macro_rules! platform_writer_impl {
                     // member/ex_member history is preserved across analyses.
                     "DELETE FROM access_grants WHERE application_id=$1 AND association_type='codeowner'",
                     // App-owned sub-entities are rebuilt each sync; CASCADE clears
-                    // observability_signals, diagrams and use_case_components.
+                    // observability_signals, diagrams, use_case_components and
+                    // endpoint_files.
+                    "DELETE FROM api_endpoints WHERE application_id=$1",
                     "DELETE FROM components WHERE application_id=$1",
                     "DELETE FROM use_cases WHERE application_id=$1",
                 ] {
@@ -278,6 +351,62 @@ macro_rules! platform_writer_impl {
                 Ok(())
             }
 
+            /// Insert the application's exposed API endpoints (M42), linking each
+            /// to its implementing component; drop endpoints with an unsupported
+            /// protocol.
+            async fn write_endpoints(
+                &self,
+                app_id: Uuid,
+                components: &HashMap<String, Uuid>,
+                result: &AnalysisResult,
+            ) -> RepoResult<()> {
+                for ep in &result.endpoints {
+                    if !ep.protocol_allowed() {
+                        continue;
+                    }
+                    let component_id = ep.component.as_ref().and_then(|n| components.get(n)).copied();
+                    let (endpoint_id,): (Uuid,) = sqlx::query_as(&$xform(
+                        "INSERT INTO api_endpoints (id, application_id, protocol, operation, summary, component_id, metadata) \
+                         VALUES ($1,$2,$3,$4,$5,$6,$7) \
+                         ON CONFLICT (application_id, protocol, operation) DO UPDATE SET \
+                         summary=EXCLUDED.summary, component_id=EXCLUDED.component_id, metadata=EXCLUDED.metadata RETURNING id",
+                    ))
+                    .bind(Uuid::new_v4())
+                    .bind(app_id)
+                    .bind(&ep.protocol)
+                    .bind(&ep.operation)
+                    .bind(&ep.summary)
+                    .bind(component_id)
+                    .bind(&ep.metadata)
+                    .fetch_one(&self.pool)
+                    .await?;
+                    for path in &ep.files {
+                        sqlx::query(&$xform(
+                            "INSERT INTO endpoint_files (endpoint_id, path) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                        ))
+                        .bind(endpoint_id)
+                        .bind(path)
+                        .execute(&self.pool)
+                        .await?;
+                    }
+                }
+                Ok(())
+            }
+
+            /// Resolve a dependency's called operation to a producer endpoint id
+            /// (M42): the endpoint of the application named `target_name`.
+            async fn resolve_endpoint(&self, target_name: &str, operation: &str) -> RepoResult<Option<Uuid>> {
+                let row: Option<(Uuid,)> = sqlx::query_as(&$xform(
+                    "SELECT e.id FROM api_endpoints e JOIN applications a ON a.id=e.application_id \
+                     WHERE a.name=$1 AND e.operation=$2",
+                ))
+                .bind(target_name)
+                .bind(operation)
+                .fetch_optional(&self.pool)
+                .await?;
+                Ok(row.map(|(id,)| id))
+            }
+
             async fn write_dependencies(
                 &self,
                 app_id: Uuid,
@@ -290,10 +419,14 @@ macro_rules! platform_writer_impl {
                         .as_ref()
                         .and_then(|name| components.get(name))
                         .copied();
+                    let endpoint_id = match dep.endpoint.as_deref().filter(|o| !o.is_empty()) {
+                        Some(operation) => self.resolve_endpoint(&dep.target_name, operation).await?,
+                        None => None,
+                    };
                     sqlx::query(&$xform(
-                        "INSERT INTO application_dependencies (id, source_app_id, component_id, target_name, kind, description) \
-                         VALUES ($1,$2,$3,$4,$5,$6) \
-                         ON CONFLICT (source_app_id, component_id, target_name, kind) DO NOTHING",
+                        "INSERT INTO application_dependencies (id, source_app_id, component_id, target_name, kind, description, endpoint_id) \
+                         VALUES ($1,$2,$3,$4,$5,$6,$7) \
+                         ON CONFLICT (source_app_id, component_id, target_name, kind) DO UPDATE SET endpoint_id=EXCLUDED.endpoint_id",
                     ))
                     .bind(Uuid::new_v4())
                     .bind(app_id)
@@ -301,6 +434,7 @@ macro_rules! platform_writer_impl {
                     .bind(&dep.target_name)
                     .bind(&dep.kind)
                     .bind(&dep.description)
+                    .bind(endpoint_id)
                     .execute(&self.pool)
                     .await?;
                 }
@@ -512,17 +646,44 @@ macro_rules! platform_writer_impl {
         #[async_trait]
         impl PlatformWriter for $name {
             async fn write(&self, repository_id: Uuid, result: &AnalysisResult) -> RepoResult<Uuid> {
+                // Snapshot prior state (M36) before the delete-and-recreate so we
+                // can diff it against the new model and emit precise changes.
+                let prior_app = self.app_prior(repository_id).await?;
+                let prior_deps = match &prior_app {
+                    Some((id, _, _)) => self.dependency_keys(*id).await?,
+                    None => Vec::new(),
+                };
                 let app_id = self.upsert_application(repository_id, &result.application).await?;
                 self.clear_associations(app_id).await?;
                 self.write_languages(app_id, result).await?;
                 self.write_libraries(app_id, result).await?;
                 self.write_linked(app_id, result).await?;
                 self.write_access(app_id, result).await?;
-                // Components first so dependencies and use cases can link to them.
+                // Components first so endpoints, dependencies and use cases can
+                // link to them.
                 let components = self.write_components(app_id, result).await?;
+                self.write_endpoints(app_id, &components, result).await?;
                 self.write_dependencies(app_id, &components, result).await?;
                 self.write_use_cases(app_id, &components, result).await?;
+                self.emit_changes(app_id, &prior_app, &prior_deps, result).await?;
                 Ok(app_id)
+            }
+
+            async fn write_partial(&self, app_id: Uuid, result: &AnalysisResult) -> RepoResult<()> {
+                // Upsert only the affected components/use cases/endpoints (their
+                // ids are preserved via ON CONFLICT, so dependencies keep their
+                // link). Untouched siblings are left intact — no clear, no prune.
+                let components = self.write_components(app_id, result).await?;
+                self.write_endpoints(app_id, &components, result).await?;
+                self.write_use_cases(app_id, &components, result).await?;
+                for component in &result.components {
+                    self.record_change(
+                        app_id,
+                        &Change::new("component", &component.name, super::changes::ChangeKind::Updated, Value::Null),
+                    )
+                    .await?;
+                }
+                Ok(())
             }
 
             async fn reconcile_members(&self, app_id: Uuid, members: &[MemberInfo]) -> RepoResult<()> {

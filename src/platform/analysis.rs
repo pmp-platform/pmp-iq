@@ -28,6 +28,8 @@ pub struct PropertyDef {
 pub struct AnalysisConfig {
     pub kinds: BTreeMap<String, Vec<KindDef>>,
     pub properties: BTreeMap<String, Vec<PropertyDef>>,
+    /// Per-section extraction prompt templates (M34); defaults until edited.
+    pub prompts: crate::platform::prompts::PromptConfig,
 }
 
 impl AnalysisConfig {
@@ -82,6 +84,9 @@ pub struct AnalysisResult {
     pub components: Vec<ComponentInfo>,
     #[serde(default)]
     pub use_cases: Vec<UseCaseInfo>,
+    /// The API operations this application exposes (M42).
+    #[serde(default)]
+    pub endpoints: Vec<EndpointInfo>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -142,8 +147,43 @@ pub struct DependencyInfo {
     /// Name of the component (from `components`) that makes this connection.
     #[serde(default)]
     pub component: Option<String>,
+    /// The producer operation this dependency calls, e.g. "POST /charge" (M42).
+    #[serde(default)]
+    pub endpoint: Option<String>,
     #[serde(default)]
     pub metadata: Value,
+}
+
+/// An API operation an application exposes (M42). `protocol` is constrained to
+/// the supported set (others are dropped on import).
+#[derive(Debug, Clone, Deserialize)]
+pub struct EndpointInfo {
+    pub operation: String,
+    #[serde(default = "default_protocol")]
+    pub protocol: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+    /// The component (by name) implementing this operation.
+    #[serde(default)]
+    pub component: Option<String>,
+    #[serde(default)]
+    pub files: Vec<String>,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+fn default_protocol() -> String {
+    "http".to_string()
+}
+
+/// The API protocols the model recognises; endpoints with any other protocol are
+/// dropped on import (the strict-vocabulary rule of M34 applied to endpoints).
+pub const ALLOWED_PROTOCOLS: &[&str] = &["http", "grpc", "graphql"];
+
+impl EndpointInfo {
+    pub fn protocol_allowed(&self) -> bool {
+        ALLOWED_PROTOCOLS.contains(&self.protocol.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -532,5 +572,27 @@ mod tests {
     #[test]
     fn invalid_json_errors() {
         assert!(AnalysisResult::parse("not json").is_err());
+    }
+
+    #[test]
+    fn parses_endpoints_and_dependency_endpoint() {
+        let text = r#"{"application":{"name":"a"},
+            "endpoints":[{"operation":"POST /charge","protocol":"http","component":"Pay","files":["src/pay.rs"]},
+                         {"operation":"x.Y","protocol":"grpc"},{"operation":"q","protocol":"soap"}],
+            "dependencies":[{"target_name":"billing","endpoint":"POST /charge"}]}"#;
+        let r = AnalysisResult::parse(text).unwrap();
+        assert_eq!(r.endpoints.len(), 3);
+        assert_eq!(r.endpoints[0].operation, "POST /charge");
+        assert!(r.endpoints[0].protocol_allowed());
+        assert!(r.endpoints[1].protocol_allowed()); // grpc
+        assert!(!r.endpoints[2].protocol_allowed()); // soap dropped on import
+        assert_eq!(r.dependencies[0].endpoint.as_deref(), Some("POST /charge"));
+    }
+
+    #[test]
+    fn endpoint_protocol_defaults_to_http() {
+        let text = r#"{"application":{"name":"a"},"endpoints":[{"operation":"GET /x"}]}"#;
+        let r = AnalysisResult::parse(text).unwrap();
+        assert_eq!(r.endpoints[0].protocol, "http");
     }
 }

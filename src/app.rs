@@ -64,6 +64,29 @@ pub struct AppState {
     pub agent_tasks: Arc<dyn AgentTaskRepository>,
     pub metrics: Arc<dyn crate::metrics::ApplicationMetricsRepository>,
     pub campaigns: Arc<dyn crate::campaigns::CampaignRepository>,
+    pub llm_usage: Arc<dyn crate::cost::LlmUsageRepository>,
+    pub llm_budgets: Arc<dyn crate::cost::LlmBudgetRepository>,
+    pub embeddings: Arc<dyn crate::embeddings::EmbeddingRepository>,
+    /// Embedding provider (M40); `None` disables semantic search/similarity
+    /// (search falls back to substring matching).
+    pub embedding_provider: Option<Arc<dyn crate::embeddings::EmbeddingProvider>>,
+    /// Platform change feed + operator audit log (M36).
+    pub changes: Arc<dyn crate::platform::changes::PlatformChangeRepository>,
+    pub audit: crate::audit::AuditService,
+    /// API surface read layer (M42).
+    pub api_endpoints: Arc<dyn crate::platform::api_endpoints::ApiEndpointRepository>,
+    /// Production-readiness scorecards (M43).
+    pub scorecards: Arc<dyn crate::scorecards::ScorecardRepository>,
+    /// Operator gamification (M44).
+    pub gamification: crate::gamification::GamificationService,
+    /// Version policy + tech radar (M45).
+    pub techradar: Arc<dyn crate::techradar::TechRadarRepository>,
+    /// Auto-remediation rules + queue (M46).
+    pub remediation: Arc<dyn crate::remediation::RemediationRepository>,
+    /// DORA deployment + incident events (M47).
+    pub dora: Arc<dyn crate::dora::DoraRepository>,
+    /// Roles, teams & multi-tenant access control (M37).
+    pub rbac: crate::rbac::RbacService,
 }
 
 impl AppState {
@@ -99,7 +122,7 @@ impl AppState {
         let accounts = AccountService::new(store::accounts(&db), deps.clone());
 
         let ai_deps = AiProviderDeps {
-            http: raw_http,
+            http: raw_http.clone(),
             runner: Arc::new(TokioCommandRunner),
             encryptor: deps.encryptor.clone(),
         };
@@ -107,6 +130,7 @@ impl AppState {
         let analysis_config = AnalysisConfigService::new(
             store::entity_kinds(&db),
             store::entity_properties(&db),
+            store::extraction_prompts(&db),
         );
 
         let jobs_repo = store::jobs(&db);
@@ -117,6 +141,30 @@ impl AppState {
         let agent_tasks = store::agent_tasks(&db);
         let app_metrics = store::application_metrics(&db);
         let campaigns = store::campaigns(&db);
+        let llm_usage = store::llm_usage(&db);
+        let llm_budgets = store::llm_budgets(&db);
+        let budget_guard =
+            Arc::new(crate::cost::BudgetGuard::new(llm_usage.clone(), config.pricing.clone()));
+        let changes = store::platform_changes(&db);
+        let audit = crate::audit::AuditService::new(store::audit(&db));
+        let api_endpoints = store::api_endpoints(&db);
+        let scorecards = store::scorecards(&db);
+        let gamification = crate::gamification::GamificationService::new(store::audit(&db), store::gamification(&db));
+        let techradar = store::techradar(&db);
+        let remediation = store::remediation(&db);
+        let dora = store::dora(&db);
+        let rbac = crate::rbac::RbacService::new(
+            store::roles(&db),
+            store::teams(&db),
+            config.auth.admin_user.clone(),
+            config.multitenant,
+        );
+        let embeddings = store::embeddings(&db);
+        let embedding_provider: Option<Arc<dyn crate::embeddings::EmbeddingProvider>> =
+            config.embedding.clone().map(|c| {
+                Arc::new(crate::embeddings::HttpEmbeddingProvider::new(raw_http.clone(), c))
+                    as Arc<dyn crate::embeddings::EmbeddingProvider>
+            });
         let workspace = Workspace::new(Arc::new(RealFileSystem), config.workspace_dir.clone());
         let review_job = ReviewRepositoriesJob::new(ReviewDeps {
             accounts: accounts.clone(),
@@ -131,6 +179,9 @@ impl AppState {
             analysis_config: analysis_config.clone(),
             lock: lock.clone(),
             hints: hints.clone(),
+            usage: llm_usage.clone(),
+            budgets: llm_budgets.clone(),
+            budget: budget_guard.clone(),
         });
         let llm_job = LlmRepositoryRequestJob::new(LlmRequestDeps {
             accounts: accounts.clone(),
@@ -140,6 +191,7 @@ impl AppState {
             ai: ai.clone(),
             ai_deps: ai_deps.clone(),
             lock: lock.clone(),
+            usage: llm_usage.clone(),
         });
         let agent_job = AgentTaskJob::new(AgentTaskDeps {
             tasks: agent_tasks.clone(),
@@ -150,6 +202,7 @@ impl AppState {
             ai: ai.clone(),
             ai_deps: ai_deps.clone(),
             lock: lock.clone(),
+            usage: llm_usage.clone(),
         });
         let metrics_job = crate::metrics::CollectMetricsJob::new(crate::metrics::CollectMetricsDeps {
             platform: store::platform_query(&db),
@@ -161,6 +214,10 @@ impl AppState {
             ai_deps: ai_deps.clone(),
             metrics: app_metrics.clone(),
             lock: lock.clone(),
+            usage: llm_usage.clone(),
+            budgets: llm_budgets.clone(),
+            budget: budget_guard.clone(),
+            analysis_config: analysis_config.clone(),
         });
         let pr_watcher_job = crate::pr_watcher::PrWatcherJob::new(crate::pr_watcher::PrWatcherDeps {
             tasks: agent_tasks.clone(),
@@ -179,6 +236,16 @@ impl AppState {
         registry.register(Arc::new(agent_job));
         registry.register(Arc::new(pr_watcher_job));
         registry.register(Arc::new(metrics_job));
+        registry.register(Arc::new(crate::gamification::GamificationJob::new(gamification.clone())));
+        if let Some(provider) = &embedding_provider {
+            registry.register(Arc::new(crate::embeddings::GenerateEmbeddingsJob::new(
+                crate::embeddings::GenerateEmbeddingsDeps {
+                    sources: Arc::new(crate::embeddings::PlatformEmbeddingSources::new(store::platform_query(&db))),
+                    repo: embeddings.clone(),
+                    provider: provider.clone(),
+                },
+            )));
+        }
         let registry = Arc::new(registry);
         let runner = Arc::new(JobRunner::new(RunnerDeps {
             jobs: jobs_repo.clone(),
@@ -215,6 +282,19 @@ impl AppState {
             agent_tasks,
             metrics: app_metrics,
             campaigns,
+            llm_usage,
+            llm_budgets,
+            embeddings,
+            embedding_provider,
+            changes,
+            audit,
+            api_endpoints,
+            scorecards,
+            gamification,
+            techradar,
+            remediation,
+            dora,
+            rbac,
         })
     }
 }

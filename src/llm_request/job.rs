@@ -2,10 +2,11 @@
 
 use crate::accounts::AccountService;
 use crate::ai::{AiProfileService, AiProvider, AiProviderDeps, AiProviderFactory, AiRequest};
+use crate::cost::LlmUsageRepository;
 use crate::error::AppError;
 use crate::git::{CloneRequest, GitClient};
 use crate::jobs::repository::JobRepository;
-use crate::jobs::{JobContext, JobError, JobOutcome, JobType, RecordingAiProvider};
+use crate::jobs::{JobContext, JobError, JobOutcome, JobType, RecordingAiProvider, UsageAttribution};
 use crate::jobs::model::{JobInput, TriggerType};
 use crate::locks::{DistributedLock, lock_keys};
 use crate::repositories::{RepoRecord, RepoRecordRepository};
@@ -32,6 +33,8 @@ pub struct LlmRequestDeps {
     pub ai: AiProfileService,
     pub ai_deps: AiProviderDeps,
     pub lock: Arc<dyn DistributedLock>,
+    /// LLM usage recording for cost rollups (M39).
+    pub usage: Arc<dyn LlmUsageRepository>,
 }
 
 /// Per-execution input carried on `job_executions.params`.
@@ -122,7 +125,12 @@ impl LlmRepositoryRequestJob {
             .map_err(|e| JobError::Failed(e.to_string()))?;
         let inner = AiProviderFactory::build(&profile, &self.deps.ai_deps)
             .map_err(|e| JobError::Failed(e.to_string()))?;
-        Ok(ctx.recording_provider(inner))
+        let attribution = UsageAttribution {
+            application_id: None,
+            ai_profile_id: Some(profile_id),
+            model: profile.model(),
+        };
+        Ok(ctx.recording_provider_priced(inner, self.deps.usage.clone(), attribution))
     }
 
     /// Sync the checkout, run the LLM, and assemble the outcome.
@@ -253,7 +261,15 @@ mod tests {
             default_branch: Some("develop".into()),
             local_path: None,
             last_commit_sha: None,
+            last_analyzed_sha: None,
         }
+    }
+
+    /// A permissive LLM-usage mock (recording is best-effort, never asserted).
+    fn noop_usage() -> Arc<dyn crate::cost::LlmUsageRepository> {
+        let mut m = crate::cost::repository::MockLlmUsageRepository::new();
+        m.expect_record().returning(|_| Ok(()));
+        Arc::new(m)
     }
 
     fn deps(repos: MockRepoRecordRepository, lock: MockDistributedLock) -> LlmRequestDeps {
@@ -275,6 +291,7 @@ mod tests {
             ai: AiProfileService::new(Arc::new(MockAiProfileRepository::new()), ai_deps.clone()),
             ai_deps,
             lock: Arc::new(lock),
+            usage: noop_usage(),
         }
     }
 
@@ -426,6 +443,7 @@ mod tests {
             ai,
             ai_deps,
             lock: Arc::new(lock),
+            usage: noop_usage(),
         };
         let job = LlmRepositoryRequestJob::new(deps);
 

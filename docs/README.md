@@ -58,6 +58,12 @@ explicit acceptance criteria. Implement them in order.
 | 39 | [milestone-39-llm-cost-and-token-budgeting.md](milestone-39-llm-cost-and-token-budgeting.md) | LLM cost & token budgeting |
 | 40 | [milestone-40-semantic-search-and-duplicate-detection.md](milestone-40-semantic-search-and-duplicate-detection.md) | Semantic search & duplicate detection |
 | 41 | [milestone-41-incremental-analysis.md](milestone-41-incremental-analysis.md) | Incremental analysis |
+| 42 | [milestone-42-api-contracts.md](milestone-42-api-contracts.md) | API contracts & endpoint-level dependencies |
+| 43 | [milestone-43-production-readiness-scorecards.md](milestone-43-production-readiness-scorecards.md) | Production-readiness scorecards |
+| 44 | [milestone-44-user-gamification.md](milestone-44-user-gamification.md) | Operator gamification (levels, XP, skills, badges) |
+| 45 | [milestone-45-version-currency-tech-radar.md](milestone-45-version-currency-tech-radar.md) | Version currency & tech radar |
+| 46 | [milestone-46-auto-remediation-tasks.md](milestone-46-auto-remediation-tasks.md) | Auto-remediation tasks |
+| 47 | [milestone-47-dora-metrics.md](milestone-47-dora-metrics.md) | DORA metrics |
 
 ## Architecture at a glance
 

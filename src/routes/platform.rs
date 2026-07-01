@@ -57,6 +57,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/platform/applications/:id/files", get(browse_files))
         .route("/api/platform/applications/:id/files/content", get(file_content))
         .route("/api/platform/applications/:id/codebase-map", get(codebase_map_api))
+        .route("/api/platform/applications/:id/endpoints", get(application_endpoints))
         .route("/api/platform/:entity", get(list_api))
         .route("/api/platform/:entity/facets", get(facets_api))
         .route("/api/platform/:entity/:id", get(detail_api))
@@ -93,8 +94,12 @@ async fn ask_platform(
 /// Schedule a `sync-repositories` run scoped to this application's repository.
 async fn sync_application(
     State(state): State<AppState>,
+    Extension(user): Extension<Principal>,
     Path(app_id): Path<Uuid>,
 ) -> AppResult<Json<Value>> {
+    if !state.rbac.can_mutate_app(&user, app_id).await? {
+        return Err(AppError::Unauthorized);
+    }
     let repository = state
         .platform
         .application_repository(app_id)
@@ -186,7 +191,7 @@ async fn enqueue_turn(
 }
 
 /// Add a repository target to a task and enqueue its first (fresh-branch) turn.
-async fn add_target_and_enqueue(
+pub(crate) async fn add_target_and_enqueue(
     state: &AppState,
     task: &crate::agent_tasks::AgentTask,
     repository_id: Uuid,
@@ -215,6 +220,7 @@ async fn list_agent_tasks(
 /// Create a single-repository task and enqueue its first turn.
 async fn create_agent_task(
     State(state): State<AppState>,
+    Extension(user): Extension<Principal>,
     Path(app_id): Path<Uuid>,
     Json(payload): Json<NewTaskPayload>,
 ) -> AppResult<Json<Value>> {
@@ -222,6 +228,9 @@ async fn create_agent_task(
     let message = payload.message.trim().to_string();
     if title.is_empty() || message.is_empty() {
         return Err(AppError::BadRequest("title and message are required".into()));
+    }
+    if !state.rbac.can_mutate_app(&user, app_id).await? {
+        return Err(AppError::Unauthorized);
     }
     let repository = state
         .platform
@@ -238,6 +247,7 @@ async fn create_agent_task(
         .await?;
     record_user_message(&state, task.id, &message).await?;
     let execution_id = add_target_and_enqueue(&state, &task, repository, &message).await?;
+    state.audit.record(&user.username, "agent_task.create", Some(&task.id.to_string()), json!({})).await;
     Ok(Json(json!({ "task": task, "execution_id": execution_id })))
 }
 
@@ -322,6 +332,7 @@ async fn resolve_campaign_apps(state: &AppState, payload: &CampaignPayload) -> A
 /// (one PR per repo), and record the campaign linked to that task.
 async fn create_campaign(
     State(state): State<AppState>,
+    Extension(user): Extension<Principal>,
     Json(payload): Json<CampaignPayload>,
 ) -> AppResult<Json<Value>> {
     let name = payload.name.trim().to_string();
@@ -368,6 +379,7 @@ async fn create_campaign(
         .campaigns
         .create(crate::campaigns::NewCampaign { name, instruction, selection, task_id: task.id })
         .await?;
+    state.audit.record(&user.username, "campaign.create", Some(&campaign.id.to_string()), json!({})).await;
     Ok(Json(json!({ "campaign": campaign, "execution_ids": executions })))
 }
 
@@ -428,7 +440,7 @@ async fn post_agent_message(
 }
 
 /// Persist a user message on a task's transcript.
-async fn record_user_message(state: &AppState, task_id: Uuid, message: &str) -> AppResult<()> {
+pub(crate) async fn record_user_message(state: &AppState, task_id: Uuid, message: &str) -> AppResult<()> {
     state
         .agent_tasks
         .add_message(crate::agent_tasks::NewMessage {
@@ -741,22 +753,55 @@ async fn c4_page(
     render_page(&state.engine, "c4.html", &page, context! { active_tab => "c4" })
 }
 
-/// C4 export options: whether to include dependencies (external systems) or
-/// show applications only (the default).
+/// C4 export options: the level (context/container/component), the application
+/// to scope container/component levels to, and whether to include dependencies
+/// (external systems) or show applications only (the default).
 #[derive(Deserialize)]
 struct C4Query {
     #[serde(default)]
     dependencies: bool,
+    #[serde(default)]
+    level: Option<String>,
+    #[serde(default)]
+    application: Option<Uuid>,
 }
 
-/// C4 export: Structurizr DSL + C4 Mermaid for the whole platform. Applications
-/// only by default; `?dependencies=true` adds the external systems they use.
+/// C4 export: Structurizr DSL + C4 Mermaid for the requested level (M29/M38).
+/// `context` (default) is the fleet System-Context; `container` and `component`
+/// require an `application` and project that app's containers / components.
 async fn c4_api(State(state): State<AppState>, Query(q): Query<C4Query>) -> AppResult<Json<Value>> {
-    let graph = state.graph.build(&GraphScope::new(None, Some(800))).await?;
-    Ok(Json(json!({
-        "dsl": crate::c4::structurizr_dsl(&graph, q.dependencies),
-        "mermaid": crate::c4::mermaid_context(&graph, q.dependencies),
-    })))
+    match q.level.as_deref().unwrap_or("context") {
+        "container" => {
+            let app = c4_application(&q)?;
+            let graph = state.graph.build(&GraphScope::new(Some(app), Some(800))).await?;
+            let id = app.to_string();
+            Ok(Json(json!({
+                "dsl": crate::c4::container_dsl(&graph, &id, q.dependencies),
+                "mermaid": crate::c4::container_mermaid(&graph, &id, q.dependencies),
+            })))
+        }
+        "component" => {
+            let app = c4_application(&q)?;
+            let detail = state.platform.detail("applications", app).await?;
+            Ok(Json(json!({
+                "dsl": crate::c4::component_dsl(&detail),
+                "mermaid": crate::c4::component_mermaid(&detail),
+            })))
+        }
+        _ => {
+            let graph = state.graph.build(&GraphScope::new(None, Some(800))).await?;
+            Ok(Json(json!({
+                "dsl": crate::c4::structurizr_dsl(&graph, q.dependencies),
+                "mermaid": crate::c4::mermaid_context(&graph, q.dependencies),
+            })))
+        }
+    }
+}
+
+/// The application id required by container/component levels.
+fn c4_application(q: &C4Query) -> AppResult<Uuid> {
+    q.application
+        .ok_or_else(|| AppError::BadRequest("an application is required for this C4 level".into()))
 }
 
 async fn list_page(
@@ -796,12 +841,25 @@ async fn detail_page(
 
 async fn list_api(
     State(state): State<AppState>,
+    Extension(user): Extension<Principal>,
     Path(entity): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> AppResult<Json<Value>> {
     validate_entity(&entity)?;
     let query = build_list_query(&entity, &params);
-    let page = state.platform.list(&entity, &query).await?;
+    let mut page = state.platform.list(&entity, &query).await?;
+    // Multi-tenant (M37): drop applications outside the caller's tenant.
+    if entity == "applications" {
+        if let Some(visible) = state.rbac.visible_app_ids(&user).await? {
+            page.items.retain(|item| {
+                item.get("id")
+                    .and_then(Value::as_str)
+                    .and_then(|s| Uuid::parse_str(s).ok())
+                    .is_some_and(|id| visible.contains(&id))
+            });
+            page.total = page.items.len() as i64;
+        }
+    }
     Ok(Json(json!({
         "items": page.items,
         "total": page.total,
@@ -820,11 +878,41 @@ async fn facets_api(
     Ok(Json(facets))
 }
 
+/// An application's exposed API endpoints with, per endpoint, the applications
+/// that consume it (M42 — the API tab + impact analysis).
+async fn application_endpoints(
+    State(state): State<AppState>,
+    Path(app_id): Path<Uuid>,
+) -> AppResult<Json<Value>> {
+    let endpoints = state.api_endpoints.for_application(app_id).await?;
+    let mut out = Vec::with_capacity(endpoints.len());
+    for endpoint in endpoints {
+        let consumers = state.api_endpoints.consumers(endpoint.id).await?;
+        out.push(json!({ "endpoint": endpoint, "consumers": consumers }));
+    }
+    Ok(Json(json!({ "endpoints": out })))
+}
+
 async fn detail_api(
     State(state): State<AppState>,
+    Extension(user): Extension<Principal>,
     Path((entity, id)): Path<(String, Uuid)>,
 ) -> AppResult<Json<Value>> {
     validate_entity(&entity)?;
+    // Multi-tenant (M37): hide applications outside the caller's tenant.
+    if entity == "applications" {
+        if let Some(visible) = state.rbac.visible_app_ids(&user).await? {
+            if !visible.contains(&id) {
+                return Err(AppError::NotFound("application".into()));
+            }
+        }
+    }
     let detail = state.platform.detail(&entity, id).await?;
+    let mut detail = detail;
+    if entity == "applications" {
+        if let Some(obj) = detail.as_object_mut() {
+            obj.insert("owner_teams".into(), json!(state.rbac.owner_team_names(id).await.unwrap_or_default()));
+        }
+    }
     Ok(Json(json!({ "detail": detail })))
 }

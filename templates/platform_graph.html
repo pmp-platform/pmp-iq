@@ -18,6 +18,13 @@
       class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-sm font-medium hover:bg-blue-200 disabled:opacity-50">Ask</button>
   </div>
   <div id="platform-ask-answer" class="md-body text-sm mt-2"></div>
+  <div class="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100">
+    <input id="sem-search-input" class="flex-1 border border-slate-300 rounded px-2 py-1 text-sm"
+      placeholder="Semantic search… e.g. apps that send email" />
+    <button id="sem-search-btn" type="button"
+      class="bg-slate-100 text-slate-700 rounded px-2.5 py-1 text-sm font-medium hover:bg-slate-200">Search</button>
+  </div>
+  <div id="sem-search-results" class="text-sm mt-2"></div>
 </div>
 
 <div id="graph-legend" class="flex flex-wrap gap-4 text-xs mb-2 text-slate-500"></div>
@@ -28,4 +35,5 @@
 <script src="/assets/vendor/marked.min.js?v={{ asset_version }}" defer></script>
 <script src="/assets/platform-graph.js?v={{ asset_version }}" defer></script>
 <script src="/assets/platform-ask.js?v={{ asset_version }}" defer></script>
+<script src="/assets/semantic.js?v={{ asset_version }}" defer></script>
 {% endblock %}

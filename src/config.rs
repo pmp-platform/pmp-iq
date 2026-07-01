@@ -208,6 +208,15 @@ pub struct Config {
     /// `APP_VERSION` when set, otherwise a random value generated per boot so
     /// local restarts invalidate stale assets automatically.
     pub app_version: String,
+    /// Per-model LLM price map (M39): built-in Claude prices, overridable from
+    /// the `pricing:` section of `config.yaml`.
+    pub pricing: crate::cost::PriceTable,
+    /// Embedding provider settings (M40); `None` disables semantic generation
+    /// (search then falls back to substring matching).
+    pub embedding: Option<crate::embeddings::EmbeddingConfig>,
+    /// When true, non-admins only see applications owned by their tenant's
+    /// teams (M37). Off by default — single-tenant behaviour is unchanged.
+    pub multitenant: bool,
 }
 
 // --- env > file > default resolution helpers --------------------------------
@@ -416,8 +425,35 @@ impl Config {
             )?,
             app_version: resolve_opt(env, "APP_VERSION", file.app_version.as_deref())
                 .unwrap_or_else(|| Uuid::new_v4().simple().to_string()),
+            pricing: load_pricing(&file.pricing),
+            embedding: load_embedding(env, &file.embedding),
+            multitenant: resolve_bool(env, "MULTITENANT_ENABLED", file.multitenant.enabled, false)?,
         })
     }
+}
+
+/// Build the embedding provider config from env/file. Requires at least an
+/// endpoint; `None` (the default) disables embedding generation.
+fn load_embedding(env: &dyn EnvSource, file: &FileEmbedding) -> Option<crate::embeddings::EmbeddingConfig> {
+    let endpoint = resolve_opt(env, "EMBEDDING_ENDPOINT", file.endpoint.as_deref())?;
+    let model = resolve_str(env, "EMBEDDING_MODEL", file.model.as_deref(), "text-embedding-3-small");
+    let api_key = resolve_opt(env, "EMBEDDING_API_KEY", file.api_key.as_deref());
+    Some(crate::embeddings::EmbeddingConfig { endpoint, model, api_key })
+}
+
+/// Build the LLM price table from the optional `pricing:` config section,
+/// layered over the built-in Claude defaults.
+fn load_pricing(file: &FilePricing) -> crate::cost::PriceTable {
+    let overrides = file
+        .models
+        .iter()
+        .map(|(k, v)| (k.clone(), crate::cost::ModelPrice { input_per_mtok: v.input, output_per_mtok: v.output }))
+        .collect();
+    let default = file
+        .default
+        .as_ref()
+        .map(|v| crate::cost::ModelPrice { input_per_mtok: v.input, output_per_mtok: v.output });
+    crate::cost::PriceTable::with_overrides(overrides, default)
 }
 
 // --- optional config.yaml file ---------------------------------------------
@@ -435,9 +471,44 @@ struct FileConfig {
     log: FileLog,
     agent: FileAgent,
     webhooks: FileWebhooks,
+    pricing: FilePricing,
+    embedding: FileEmbedding,
+    multitenant: FileMultitenant,
     workspace_dir: Option<String>,
     git_min_interval_ms: Option<u64>,
     app_version: Option<String>,
+}
+
+/// Optional `pricing:` block: per-model price overrides (USD / million tokens)
+/// and an optional default for unknown models.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FilePricing {
+    models: HashMap<String, FilePrice>,
+    default: Option<FilePrice>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FilePrice {
+    input: f64,
+    output: f64,
+}
+
+/// Optional `embedding:` block (M40): the embeddings provider endpoint/model/key.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileEmbedding {
+    endpoint: Option<String>,
+    model: Option<String>,
+    api_key: Option<String>,
+}
+
+/// Optional `multitenant:` block (M37).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileMultitenant {
+    enabled: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]

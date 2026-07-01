@@ -5,12 +5,16 @@
 use super::model::Metric;
 use super::repository::ApplicationMetricsRepository;
 use crate::accounts::AccountService;
-use crate::ai::{AiProfileService, AiProvider, AiProviderDeps, AiProviderFactory, AiRequest};
+use crate::ai::{AiProfile, AiProfileService, AiProvider, AiProviderDeps, AiProviderFactory, AiRequest};
+use crate::analysis_config::AnalysisConfigService;
+use crate::cost::{BudgetGuard, BudgetScope, LlmBudgetRepository, LlmUsageRepository, ScopeRef};
 use crate::error::AppError;
 use crate::git::{CloneRequest, GitClient};
 use crate::jobs::model::{JobInput, TriggerType};
 use crate::jobs::repository::JobRepository;
-use crate::jobs::{JobContext, JobError, JobOutcome, JobType, RecordingAiProvider};
+use crate::jobs::{
+    JobContext, JobError, JobOutcome, JobType, RecordingAiProvider, UsageAttribution, enforce_budget,
+};
 use crate::locks::{DistributedLock, lock_keys};
 use crate::platform::query::PlatformQuery;
 use crate::repositories::{RepoRecord, RepoRecordRepository};
@@ -114,6 +118,12 @@ pub struct CollectMetricsDeps {
     pub ai_deps: AiProviderDeps,
     pub metrics: Arc<dyn ApplicationMetricsRepository>,
     pub lock: Arc<dyn DistributedLock>,
+    /// LLM usage recording + budget enforcement (M39).
+    pub usage: Arc<dyn LlmUsageRepository>,
+    pub budgets: Arc<dyn LlmBudgetRepository>,
+    pub budget: Arc<BudgetGuard>,
+    /// Source of the configurable metrics prompt preamble (M34).
+    pub analysis_config: AnalysisConfigService,
 }
 
 #[derive(Deserialize)]
@@ -162,8 +172,8 @@ impl CollectMetricsJob {
         Ok(dest)
     }
 
-    async fn provider(&self, ctx: &JobContext, profile_id: Uuid) -> Result<RecordingAiProvider, JobError> {
-        let profile = self
+    async fn provider(&self, ctx: &JobContext, app_id: Uuid, profile_id: Uuid) -> Result<RecordingAiProvider, JobError> {
+        let profile: AiProfile = self
             .deps
             .ai
             .get(profile_id)
@@ -171,13 +181,19 @@ impl CollectMetricsJob {
             .map_err(|e| JobError::Failed(e.to_string()))?;
         let inner = AiProviderFactory::build(&profile, &self.deps.ai_deps)
             .map_err(|e| JobError::Failed(e.to_string()))?;
-        Ok(ctx.recording_provider(inner))
+        let attribution = UsageAttribution {
+            application_id: Some(app_id),
+            ai_profile_id: Some(profile_id),
+            model: profile.model(),
+        };
+        Ok(ctx.recording_provider_priced(inner, self.deps.usage.clone(), attribution))
     }
 
     async fn collect(&self, ctx: &JobContext, app_id: Uuid, record: &RepoRecord, profile_id: Uuid) -> Result<JobOutcome, JobError> {
         let checkout = self.checkout(ctx, record).await?;
-        let provider = self.provider(ctx, profile_id).await?;
-        let llm = llm_metrics(&provider, &checkout).await?;
+        let provider = self.provider(ctx, app_id, profile_id).await?;
+        let preamble = self.deps.analysis_config.metrics_prompt().await.unwrap_or_default();
+        let llm = llm_metrics(&provider, &checkout, &preamble).await?;
         self.record_set(app_id, "llm", &llm).await?;
         let derived = self.collect_derived(app_id).await?;
         self.record_set(app_id, "derived", &derived).await?;
@@ -208,20 +224,31 @@ impl CollectMetricsJob {
     }
 }
 
-/// Run every LLM pass over the checkout and concatenate their metrics.
-async fn llm_metrics(provider: &RecordingAiProvider, checkout: &str) -> Result<Vec<Metric>, JobError> {
+/// Run every LLM pass over the checkout and concatenate their metrics. The
+/// configurable metrics preamble (M34) is prepended to each pass's system prompt.
+async fn llm_metrics(provider: &RecordingAiProvider, checkout: &str, preamble: &str) -> Result<Vec<Metric>, JobError> {
     let mut out = Vec::new();
 
     for pass in PASSES {
-        out.extend(run_pass(provider, checkout, pass).await?);
+        out.extend(run_pass(provider, checkout, pass, preamble).await?);
     }
     Ok(out)
 }
 
 /// Run one LLM pass and parse its configured fields.
-async fn run_pass(provider: &RecordingAiProvider, checkout: &str, pass: &Pass) -> Result<Vec<Metric>, JobError> {
+async fn run_pass(
+    provider: &RecordingAiProvider,
+    checkout: &str,
+    pass: &Pass,
+    preamble: &str,
+) -> Result<Vec<Metric>, JobError> {
+    let system = if preamble.trim().is_empty() {
+        pass.system.to_string()
+    } else {
+        format!("{}\n\n{}", preamble.trim(), pass.system)
+    };
     let request = AiRequest::new(pass.prompt)
-        .with_system(pass.system.to_string())
+        .with_system(system)
         .with_working_dir(checkout.to_string());
     let response = provider
         .complete(request)
@@ -243,6 +270,12 @@ impl JobType for CollectMetricsJob {
 
     async fn run(&self, ctx: JobContext) -> Result<JobOutcome, JobError> {
         let input = Self::parse_input(&ctx)?;
+        let scopes = [
+            ScopeRef::new(BudgetScope::Application, Some(input.application_id)),
+            ScopeRef::new(BudgetScope::Profile, Some(input.ai_profile_id)),
+            ScopeRef::new(BudgetScope::Job, Some(ctx.job_id)),
+        ];
+        enforce_budget(&self.deps.budget, self.deps.budgets.as_ref(), &scopes, &ctx).await?;
         let repo_id = self
             .deps
             .platform

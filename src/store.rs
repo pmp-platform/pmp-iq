@@ -10,12 +10,46 @@ use crate::agent_tasks::repository::{
 use crate::campaigns::repository::{
     CampaignRepository, PgCampaignRepository, SqliteCampaignRepository,
 };
+use crate::cost::repository::{
+    LlmBudgetRepository, LlmUsageRepository, PgLlmBudgetRepository, PgLlmUsageRepository,
+    SqliteLlmBudgetRepository, SqliteLlmUsageRepository,
+};
+use crate::embeddings::repository::{
+    EmbeddingRepository, PgEmbeddingRepository, SqliteEmbeddingRepository,
+};
 use crate::ai::repository::{AiProfileRepository, PgAiProfileRepository, SqliteAiProfileRepository};
 use crate::analysis_config::repository::{
     EntityKindRepository, EntityPropertyRepository, PgEntityKindRepository,
     PgEntityPropertyRepository, SqliteEntityKindRepository, SqliteEntityPropertyRepository,
 };
+use crate::analysis_config::prompt_repository::{
+    ExtractionPromptRepository, PgExtractionPromptRepository, SqliteExtractionPromptRepository,
+};
 use crate::appsettings::{PgSettingsRepository, SettingsRepository, SqliteSettingsRepository};
+use crate::audit::{AuditRepository, PgAuditRepository, SqliteAuditRepository};
+use crate::platform::api_endpoints::{
+    ApiEndpointRepository, PgApiEndpointRepository, SqliteApiEndpointRepository,
+};
+use crate::platform::changes::{
+    PgPlatformChangeRepository, PlatformChangeRepository, SqlitePlatformChangeRepository,
+};
+use crate::rbac::repository::{
+    PgRoleRepository, PgTeamRepository, RoleRepository, SqliteRoleRepository, SqliteTeamRepository,
+    TeamRepository,
+};
+use crate::dora::repository::{DoraRepository, PgDoraRepository, SqliteDoraRepository};
+use crate::gamification::repository::{
+    GamificationRepository, PgGamificationRepository, SqliteGamificationRepository,
+};
+use crate::remediation::repository::{
+    PgRemediationRepository, RemediationRepository, SqliteRemediationRepository,
+};
+use crate::scorecards::repository::{
+    PgScorecardRepository, ScorecardRepository, SqliteScorecardRepository,
+};
+use crate::techradar::repository::{
+    PgTechRadarRepository, SqliteTechRadarRepository, TechRadarRepository,
+};
 use crate::db::Database;
 use crate::hints::{EntityHintRepository, PgEntityHintRepository, SqliteEntityHintRepository};
 use crate::metrics::repository::{
@@ -70,6 +104,12 @@ engine_factory!(
     PgEntityPropertyRepository,
     SqliteEntityPropertyRepository
 );
+engine_factory!(
+    extraction_prompts,
+    ExtractionPromptRepository,
+    PgExtractionPromptRepository,
+    SqliteExtractionPromptRepository
+);
 engine_factory!(jobs, JobRepository, PgJobRepository, SqliteJobRepository);
 engine_factory!(
     job_executions,
@@ -101,6 +141,39 @@ engine_factory!(
     SqliteApplicationMetricsRepository
 );
 engine_factory!(campaigns, CampaignRepository, PgCampaignRepository, SqliteCampaignRepository);
+engine_factory!(llm_usage, LlmUsageRepository, PgLlmUsageRepository, SqliteLlmUsageRepository);
+engine_factory!(llm_budgets, LlmBudgetRepository, PgLlmBudgetRepository, SqliteLlmBudgetRepository);
+engine_factory!(embeddings, EmbeddingRepository, PgEmbeddingRepository, SqliteEmbeddingRepository);
+engine_factory!(audit, AuditRepository, PgAuditRepository, SqliteAuditRepository);
+engine_factory!(roles, RoleRepository, PgRoleRepository, SqliteRoleRepository);
+engine_factory!(teams, TeamRepository, PgTeamRepository, SqliteTeamRepository);
+engine_factory!(scorecards, ScorecardRepository, PgScorecardRepository, SqliteScorecardRepository);
+engine_factory!(
+    gamification,
+    GamificationRepository,
+    PgGamificationRepository,
+    SqliteGamificationRepository
+);
+engine_factory!(techradar, TechRadarRepository, PgTechRadarRepository, SqliteTechRadarRepository);
+engine_factory!(
+    remediation,
+    RemediationRepository,
+    PgRemediationRepository,
+    SqliteRemediationRepository
+);
+engine_factory!(dora, DoraRepository, PgDoraRepository, SqliteDoraRepository);
+engine_factory!(
+    platform_changes,
+    PlatformChangeRepository,
+    PgPlatformChangeRepository,
+    SqlitePlatformChangeRepository
+);
+engine_factory!(
+    api_endpoints,
+    ApiEndpointRepository,
+    PgApiEndpointRepository,
+    SqliteApiEndpointRepository
+);
 
 /// Build the distributed lock. When Redis is enabled it backs the lock (correct
 /// across instances through a shared Redis); otherwise the SQL-backed lock over

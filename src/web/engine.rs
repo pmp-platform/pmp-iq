@@ -28,6 +28,10 @@ fn register(env: &mut Environment<'static>) {
         ("dashboard.html", include_str!("../../templates/dashboard.html")),
         ("c4.html", include_str!("../../templates/c4.html")),
         ("campaigns.html", include_str!("../../templates/campaigns.html")),
+        ("audit.html", include_str!("../../templates/audit.html")),
+        ("leaderboard.html", include_str!("../../templates/leaderboard.html")),
+        ("tech_radar.html", include_str!("../../templates/tech_radar.html")),
+        ("remediation.html", include_str!("../../templates/remediation.html")),
     ];
     for (name, source) in templates {
         env.add_template(name, source)

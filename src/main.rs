@@ -102,6 +102,24 @@ async fn main() -> anyhow::Result<()> {
     if let Err(e) = pmp_iq::review::ensure_sync_job(state.jobs_repo.as_ref(), sync_profile).await {
         tracing::warn!(error = %e, "failed to seed sync-repositories job");
     }
+    // Seed the default scorecard checks (M43) on first boot.
+    if let Err(e) = pmp_iq::scorecards::ensure_default_checks(state.scorecards.as_ref()).await {
+        tracing::warn!(error = %e, "failed to seed scorecard checks");
+    }
+    // Seed the hourly gamification job (M44).
+    if let Err(e) = pmp_iq::gamification::ensure_job(state.jobs_repo.as_ref()).await {
+        tracing::warn!(error = %e, "failed to seed gamification job");
+    }
+    // Seed the default version policy (M45).
+    if let Err(e) = pmp_iq::techradar::ensure_default_policies(state.techradar.as_ref()).await {
+        tracing::warn!(error = %e, "failed to seed version policy");
+    }
+    // Seed the embeddings job only when an embedding provider is configured.
+    if state.embedding_provider.is_some() {
+        if let Err(e) = pmp_iq::embeddings::ensure_embeddings_job(state.jobs_repo.as_ref()).await {
+            tracing::warn!(error = %e, "failed to seed generate-embeddings job");
+        }
+    }
 
     let scheduler = Arc::new(CronScheduler::new(
         state.runner.clone(),

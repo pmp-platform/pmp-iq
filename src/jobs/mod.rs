@@ -1,6 +1,7 @@
 //! Jobs subsystem: typed job definitions, a runner with status tracking, and a
 //! cron scheduler.
 
+pub mod budget;
 pub mod builtin;
 pub mod clock;
 pub mod controller;
@@ -12,11 +13,12 @@ pub mod repository;
 pub mod runner;
 pub mod scheduler;
 
+pub use budget::enforce_budget;
 pub use builtin::NoopJob;
 pub use clock::{Clock, SystemClock};
 pub use controller::{ControllerDeps, JobController};
 pub use job_type::{HeartbeatGuard, JobContext, JobType, JobTypeInfo, JobTypeRegistry};
-pub use recording::RecordingAiProvider;
+pub use recording::{RecordingAiProvider, UsageAttribution};
 pub use log_sink::{LogSink, PgLogSink, SqliteLogSink};
 pub use model::{
     ExecStatus, ExecutionUpdate, Job, JobError, JobExecution, JobInput, JobOutcome, TriggerType,

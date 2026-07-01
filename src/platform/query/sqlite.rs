@@ -17,6 +17,9 @@ pub struct SqlitePlatformQuery {
 
 /// A nullable string column.
 type Opt = Option<String>;
+/// One `application_dependencies` row: target_name, kind, description, target
+/// app id, component id, component name.
+type DepRow = (String, Opt, Opt, Option<Uuid>, Option<Uuid>, Opt);
 
 /// A filter as (allowlisted column, value).
 type Filters<'a> = [(&'static str, &'a str)];
@@ -177,7 +180,7 @@ impl SqlitePlatformQuery {
              JOIN library_versions v ON v.id=al.library_version_id \
              JOIN libraries lib ON lib.id=v.library_id WHERE al.application_id=?1",
         ).bind(id).fetch_all(&self.pool).await?;
-        let dependencies: Vec<(String, Opt, Opt, Option<Uuid>, Option<Uuid>, Opt)> = sqlx::query_as(
+        let dependencies: Vec<DepRow> = sqlx::query_as(
             "SELECT d.target_name, d.kind, d.description, ta.id, co.id, co.name FROM application_dependencies d \
              LEFT JOIN applications ta ON ta.name=d.target_name \
              LEFT JOIN components co ON co.id=d.component_id WHERE d.source_app_id=?1",
@@ -377,6 +380,16 @@ impl PlatformQuery for SqlitePlatformQuery {
             "groups" => self.group_detail(id).await,
             _ => Err(RepoError::Mapping(format!("unknown entity '{entity}'"))),
         }
+    }
+
+    async fn embedding_sources(&self) -> RepoResult<Vec<super::EmbeddingSourceRow>> {
+        let mut fetched = Vec::new();
+        for (entity_type, sql) in super::EMBEDDING_SOURCE_QUERIES {
+            let rows: Vec<(Uuid, String, String, String)> =
+                sqlx::query_as(sql).fetch_all(&self.pool).await?;
+            fetched.push((*entity_type, rows));
+        }
+        Ok(super::embedding_rows(fetched))
     }
 
     async fn facets(&self, entity: &str) -> RepoResult<Value> {

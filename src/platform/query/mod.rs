@@ -8,6 +8,28 @@ mod sqlite;
 pub use pg::PgPlatformQuery;
 pub use sqlite::SqlitePlatformQuery;
 
+/// Raw `(id, name, kind, description)` rows for one entity type, as fetched by
+/// each engine impl before mapping to [`EmbeddingSourceRow`].
+pub(crate) type EmbeddingFetch = Vec<(&'static str, Vec<(Uuid, String, String, String)>)>;
+
+/// Assemble [`EmbeddingSourceRow`]s from the (entity_type, raw row) tuples each
+/// engine impl fetches — shared mapping so the impls stay tiny.
+pub(crate) fn embedding_rows(fetched: EmbeddingFetch) -> Vec<EmbeddingSourceRow> {
+    let mut out = Vec::new();
+    for (entity_type, rows) in fetched {
+        for (entity_id, name, kind, description) in rows {
+            out.push(EmbeddingSourceRow {
+                entity_type: entity_type.to_string(),
+                entity_id,
+                name,
+                kind,
+                description,
+            });
+        }
+    }
+    out
+}
+
 use crate::db::RepoResult;
 use async_trait::async_trait;
 use serde::Serialize;
@@ -124,11 +146,32 @@ impl<T> Page<T> {
     }
 }
 
+/// A catalog entity to embed (M40): its type, id, and the fields that make up
+/// its semantic summary.
+#[derive(Debug, Clone)]
+pub struct EmbeddingSourceRow {
+    pub entity_type: String,
+    pub entity_id: Uuid,
+    pub name: String,
+    pub kind: String,
+    pub description: String,
+}
+
+/// The (entity_type, SQL) pairs yielding [`EmbeddingSourceRow`]s. Standard SQL
+/// (no placeholders), so the same statements serve both engines.
+pub(crate) const EMBEDDING_SOURCE_QUERIES: &[(&str, &str)] = &[
+    ("application", "SELECT id, name, COALESCE(app_type,''), COALESCE(description,'') FROM applications"),
+    ("component", "SELECT id, name, COALESCE(kind,''), COALESCE(description,'') FROM components"),
+    ("use_case", "SELECT id, name, '' AS kind, COALESCE(description,'') FROM use_cases"),
+];
+
 /// Read access to the platform model.
 #[async_trait]
 pub trait PlatformQuery: Send + Sync {
     async fn list(&self, entity: &str, q: &ListQuery) -> RepoResult<Page<Value>>;
     async fn detail(&self, entity: &str, id: Uuid) -> RepoResult<Value>;
+    /// Entities to embed for semantic search (applications, components, use cases).
+    async fn embedding_sources(&self) -> RepoResult<Vec<EmbeddingSourceRow>>;
     /// Distinct values for each of the entity's filterable fields (for filter
     /// dropdowns): `{ field: [value, …] }`.
     async fn facets(&self, entity: &str) -> RepoResult<Value>;

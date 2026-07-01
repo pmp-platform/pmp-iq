@@ -14,6 +14,8 @@ pub struct RepoRecord {
     pub default_branch: Option<String>,
     pub local_path: Option<String>,
     pub last_commit_sha: Option<String>,
+    /// The commit last successfully analyzed (M41); `None` until a first sync.
+    pub last_analyzed_sha: Option<String>,
 }
 
 /// Fields needed to upsert a repository record.

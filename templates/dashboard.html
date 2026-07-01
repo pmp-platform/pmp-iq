@@ -6,6 +6,20 @@
 
 <div id="dash-rollup" class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4"></div>
 
+<h2 class="text-xl font-bold mt-2 mb-3">Trends &amp; distributions</h2>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3">
+    <div class="text-sm font-semibold mb-1">Average coverage over time</div><div id="trend-coverage"></div></div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3">
+    <div class="text-sm font-semibold mb-1">Average complexity over time</div><div id="trend-complexity"></div></div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3">
+    <div class="text-sm font-semibold mb-1">Coverage distribution</div><div id="dist-coverage"></div></div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3">
+    <div class="text-sm font-semibold mb-1">Coverage (x) vs complexity (y), size = LOC</div><div id="scatter-portfolio"></div></div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-3 lg:col-span-2">
+    <div class="text-sm font-semibold mb-1">Portfolio treemap — size = LOC, colour = coverage</div><div id="treemap-portfolio"></div></div>
+</div>
+
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
   <div class="bg-white rounded-lg shadow border border-slate-200 p-4">
     <div class="font-semibold mb-2 text-sm">Top coverage</div><div id="dash-top-coverage"></div></div>
@@ -17,5 +31,38 @@
     <div class="font-semibold mb-2 text-sm">Coverage by language</div><div id="dash-by-language"></div></div>
 </div>
 
+<h2 class="text-xl font-bold mt-6 mb-3">LLM cost</h2>
+<div id="cost-totals" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"></div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-4">
+    <div class="font-semibold mb-2 text-sm">Top spend by job type</div><div id="cost-by-job-type"></div></div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-4">
+    <div class="font-semibold mb-2 text-sm">Top spend by application</div><div id="cost-by-application"></div></div>
+  <div class="bg-white rounded-lg shadow border border-slate-200 p-4">
+    <div class="font-semibold mb-2 text-sm">Budgets</div><div id="cost-budgets"></div></div>
+</div>
+
+<h2 class="text-xl font-bold mt-6 mb-3">Delivery performance (DORA)</h2>
+<div id="dora-fleet" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2"></div>
+<div class="bg-white rounded-lg shadow border border-slate-200 p-4 mb-4">
+  <div id="dora-apps" class="text-sm text-slate-500">Loading…</div>
+</div>
+
+<h2 class="text-xl font-bold mt-6 mb-3">Production readiness</h2>
+<div class="bg-white rounded-lg shadow border border-slate-200 p-4 mb-4">
+  <div id="fleet-scorecards" class="text-sm text-slate-500">Loading…</div>
+</div>
+
+<h2 class="text-xl font-bold mt-6 mb-3">Possible duplicates</h2>
+<div class="bg-white rounded-lg shadow border border-slate-200 p-4">
+  <div id="dup-panel" class="text-sm text-slate-500">Loading…</div>
+</div>
+
+<script src="/assets/vendor/minichart.js?v={{ asset_version }}" defer></script>
 <script src="/assets/platform-dashboard.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-trends.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-cost.js?v={{ asset_version }}" defer></script>
+<script src="/assets/semantic.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-scorecard.js?v={{ asset_version }}" defer></script>
+<script src="/assets/platform-dora.js?v={{ asset_version }}" defer></script>
 {% endblock %}

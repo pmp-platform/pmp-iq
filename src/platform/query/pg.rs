@@ -266,6 +266,16 @@ impl PlatformQuery for PgPlatformQuery {
         self.fetch_one_json(sql, id).await
     }
 
+    async fn embedding_sources(&self) -> RepoResult<Vec<super::EmbeddingSourceRow>> {
+        let mut fetched = Vec::new();
+        for (entity_type, sql) in super::EMBEDDING_SOURCE_QUERIES {
+            let rows: Vec<(Uuid, String, String, String)> =
+                sqlx::query_as(sql).fetch_all(&self.pool).await?;
+            fetched.push((*entity_type, rows));
+        }
+        Ok(super::embedding_rows(fetched))
+    }
+
     async fn facets(&self, entity: &str) -> RepoResult<Value> {
         let Some(table) = table_for(entity) else {
             return Ok(json!({}));

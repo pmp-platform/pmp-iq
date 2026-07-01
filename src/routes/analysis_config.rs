@@ -3,13 +3,17 @@
 
 use crate::analysis_config::model::{DataType, EntityKindInput, EntityPropertyInput};
 use crate::app::AppState;
+use crate::auth::Principal;
 use crate::error::AppResult;
+use crate::platform::prompts::{self, PromptConfig};
+use axum::Extension;
 use axum::Json;
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 pub fn routes() -> Router<AppState> {
@@ -30,6 +34,87 @@ pub fn routes() -> Router<AppState> {
             "/api/settings/entity-properties/:id",
             put(update_property).delete(delete_property),
         )
+        .route("/api/settings/extraction-prompts", get(list_prompts))
+        .route("/api/settings/extraction-prompts/:section", put(save_prompt))
+        .route("/api/settings/extraction-prompts/:section/reset", post(reset_prompt))
+}
+
+/// One prompt section's resolved state for the Settings editor.
+#[derive(Serialize)]
+struct PromptView {
+    section: String,
+    template: String,
+    enabled: bool,
+    overridden: bool,
+    default_template: String,
+    required_placeholders: Vec<String>,
+}
+
+async fn list_prompts(State(state): State<AppState>) -> AppResult<Json<Value>> {
+    let resolved = state.analysis_config.load_prompts().await?;
+    let overridden: HashSet<String> = state
+        .analysis_config
+        .list_prompt_overrides()
+        .await?
+        .into_iter()
+        .map(|p| p.section_key)
+        .collect();
+    let views: Vec<PromptView> = prompts::all_sections()
+        .into_iter()
+        .map(|section| prompt_view(&resolved, section, &overridden))
+        .collect();
+    Ok(Json(json!({ "sections": views })))
+}
+
+fn prompt_view(resolved: &PromptConfig, section: &str, overridden: &HashSet<String>) -> PromptView {
+    let s = resolved.sections.get(section);
+    PromptView {
+        section: section.to_string(),
+        template: s.map(|s| s.template.clone()).unwrap_or_default(),
+        enabled: s.map(|s| s.enabled).unwrap_or(true),
+        overridden: overridden.contains(section),
+        default_template: PromptConfig::default_template(section).unwrap_or_default().to_string(),
+        required_placeholders: prompts::required_placeholders(section)
+            .iter()
+            .map(|p| p.to_string())
+            .collect(),
+    }
+}
+
+/// Body for saving a prompt section.
+#[derive(Deserialize)]
+struct PromptPayload {
+    template: String,
+    #[serde(default = "default_true")]
+    enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+async fn save_prompt(
+    State(state): State<AppState>,
+    Extension(user): Extension<Principal>,
+    Path(section): Path<String>,
+    Json(payload): Json<PromptPayload>,
+) -> AppResult<Json<Value>> {
+    state
+        .analysis_config
+        .save_prompt(&section, &payload.template, payload.enabled)
+        .await?;
+    state.audit.record(&user.username, "prompt.update", Some(&section), json!({ "enabled": payload.enabled })).await;
+    Ok(Json(json!({ "saved": true })))
+}
+
+async fn reset_prompt(
+    State(state): State<AppState>,
+    Extension(user): Extension<Principal>,
+    Path(section): Path<String>,
+) -> AppResult<Json<Value>> {
+    state.analysis_config.reset_prompt(&section).await?;
+    state.audit.record(&user.username, "prompt.reset", Some(&section), json!({})).await;
+    Ok(Json(json!({ "reset": true })))
 }
 
 #[derive(Serialize)]

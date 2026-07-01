@@ -13,11 +13,21 @@ use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
 pub mod ai_profiles;
 pub mod analysis_config;
 pub mod auth;
+pub mod cost;
+pub mod dora;
+pub mod gamification;
 pub mod health;
 pub mod jobs;
 pub mod pages;
 pub mod platform;
+pub mod rbac;
+pub mod remediation;
+pub mod scorecards;
+pub mod search;
 pub mod settings;
+pub mod techradar;
+pub mod timeline;
+pub mod trends;
 pub mod webhooks;
 
 /// Routes reachable without authentication.
@@ -37,6 +47,16 @@ fn protected_routes() -> Router<AppState> {
         .merge(analysis_config::routes())
         .merge(jobs::routes())
         .merge(platform::routes())
+        .merge(cost::routes())
+        .merge(search::routes())
+        .merge(timeline::routes())
+        .merge(rbac::routes())
+        .merge(scorecards::routes())
+        .merge(gamification::routes())
+        .merge(techradar::routes())
+        .merge(remediation::routes())
+        .merge(dora::routes())
+        .merge(trends::routes())
         .route_layer(from_fn(require_auth))
 }
 

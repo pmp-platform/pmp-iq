@@ -115,6 +115,39 @@ async fn clone_or_update_handles_fresh_and_existing() {
 }
 
 #[tokio::test]
+async fn changed_files_lists_diff_and_flags_missing_base() {
+    let origin = seed_origin();
+    let work = unique_dir("work-cf");
+    let git = Git2Client;
+    let first = git.clone_or_update(request(&origin, &work)).await.unwrap();
+
+    // Make a second commit adding a file directly in the checkout.
+    let repo = git2::Repository::open(&work).unwrap();
+    fs::write(work.join("src_new.rs"), "fn x() {}").unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(Path::new("src_new.rs")).unwrap();
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    let sig = git2::Signature::now("t", "t@e.com").unwrap();
+    let parent = repo.head().unwrap().peel_to_commit().unwrap();
+    let new_oid = repo.commit(Some("HEAD"), &sig, &sig, "add file", &tree, &[&parent]).unwrap();
+
+    let changed = git
+        .changed_files(path_str(&work), first.commit_sha.clone(), new_oid.to_string())
+        .await
+        .unwrap();
+    assert!(!changed.base_missing);
+    assert!(changed.paths.iter().any(|p| p == "src_new.rs"), "{:?}", changed.paths);
+
+    // An unresolvable base commit flags `base_missing` (force-push/rebase).
+    let missing = git
+        .changed_files(path_str(&work), "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef".into(), new_oid.to_string())
+        .await
+        .unwrap();
+    assert!(missing.base_missing);
+}
+
+#[tokio::test]
 async fn sync_unknown_branch_errors() {
     let origin = seed_origin();
     let work = unique_dir("work3");
