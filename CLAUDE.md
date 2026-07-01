@@ -84,7 +84,11 @@ as tables and a connection graph.
   `store::distributed_lock`. Used for controller leader election + per-job/per-repo
   serialisation.
 - `src/git.rs` — `GitClient` trait + `Git2Client` (`clone_or_update`; `sync_branch`
-  = fetch + hard-reset the working tree to `origin/<branch>`).
+  = fetch + hard-reset the working tree to `origin/<branch>`). Credential callback
+  is `allowed`-type aware: HTTPS uses the token (userpass), SSH uses the agent
+  then a default on-disk key (so a user's `url.*.insteadOf` SSH rewrite still
+  authenticates); `to_https_clone_url` rewrites SSH remotes to HTTPS when a token
+  is present.
 - `src/workspace.rs` — `Workspace` (per-job dirs `{root}/jobs/{name}/{id}` via
   `JobLocator`, persisted across runs) over `FileSystem`.
 - `src/hints/` — per-entity LLM hints: `model`, dual-engine `EntityHintRepository`

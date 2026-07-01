@@ -86,14 +86,74 @@ pub trait GitClient: Send + Sync {
 /// `git2`-backed implementation. Blocking git work runs on a blocking thread.
 pub struct Git2Client;
 
+/// Rewrite an SSH-style git remote to its HTTPS form so token (HTTPS userpass)
+/// auth applies. Leaves HTTP(S) URLs and local paths untouched.
+fn to_https_clone_url(url: &str) -> String {
+    if let Some(rest) = url.strip_prefix("ssh://") {
+        // ssh://[user@]host[:port]/owner/repo.git
+        let rest = rest.rsplit('@').next().unwrap_or(rest);
+        if let Some((host_port, path)) = rest.split_once('/') {
+            let host = host_port.split(':').next().unwrap_or(host_port);
+            return format!("https://{host}/{path}");
+        }
+        return url.to_string();
+    }
+    if let Some(rest) = url.strip_prefix("git@") {
+        // scp-like: git@host:owner/repo.git
+        if let Some((host, path)) = rest.split_once(':') {
+            return format!("https://{host}/{}", path.trim_start_matches('/'));
+        }
+    }
+    url.to_string()
+}
+
 impl Git2Client {
     fn credentials_callbacks(token: Option<String>) -> git2::RemoteCallbacks<'static> {
         let mut callbacks = git2::RemoteCallbacks::new();
-        callbacks.credentials(move |_url, username, _allowed| match &token {
-            Some(t) => git2::Cred::userpass_plaintext(username.unwrap_or("x-access-token"), t),
-            None => git2::Cred::default(),
+        callbacks.credentials(move |_url, username, allowed| {
+            Self::credential_for(&token, username, allowed)
         });
         callbacks
+    }
+
+    /// Pick a credential for the transport libgit2 is negotiating: SSH (agent,
+    /// then a default on-disk key) when the remote resolves to SSH — e.g. via a
+    /// user's `url.*.insteadOf` git config — otherwise the token as HTTPS
+    /// userpass.
+    fn credential_for(
+        token: &Option<String>,
+        username: Option<&str>,
+        allowed: git2::CredentialType,
+    ) -> Result<git2::Cred, git2::Error> {
+        if allowed.contains(git2::CredentialType::USERNAME) {
+            return git2::Cred::username(username.unwrap_or("git"));
+        }
+        if allowed.contains(git2::CredentialType::SSH_KEY) {
+            return Self::ssh_credential(username.unwrap_or("git"));
+        }
+        if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+            if let Some(t) = token {
+                return git2::Cred::userpass_plaintext(username.unwrap_or("x-access-token"), t);
+            }
+        }
+        git2::Cred::default()
+    }
+
+    /// SSH credential: prefer a running agent, else a default key on disk.
+    fn ssh_credential(user: &str) -> Result<git2::Cred, git2::Error> {
+        if let Ok(cred) = git2::Cred::ssh_key_from_agent(user) {
+            return Ok(cred);
+        }
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_default();
+        for key in ["id_ed25519", "id_rsa"] {
+            let path = std::path::Path::new(&home).join(".ssh").join(key);
+            if path.exists() {
+                return git2::Cred::ssh_key(user, None, &path, None);
+            }
+        }
+        git2::Cred::ssh_key_from_agent(user)
     }
 
     fn run_clone(request: CloneRequest) -> Result<CheckoutInfo, GitError> {
@@ -121,8 +181,13 @@ impl Git2Client {
         if let Some(branch) = &request.branch {
             builder.branch(branch);
         }
+        // With a token, prefer HTTPS so the token authenticates the clone.
+        let url = match &request.token {
+            Some(_) => to_https_clone_url(&request.clone_url),
+            None => request.clone_url.clone(),
+        };
         builder
-            .clone(&request.clone_url, std::path::Path::new(&request.dest))
+            .clone(&url, std::path::Path::new(&request.dest))
             .map_err(|e| GitError::Git(e.to_string()))
     }
 
@@ -300,5 +365,37 @@ impl Git2Client {
             }
         }
         Ok(ChangedFiles { paths: paths.into_iter().collect(), base_missing: false })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_https_clone_url;
+
+    #[test]
+    fn rewrites_scp_and_ssh_urls_to_https() {
+        assert_eq!(
+            to_https_clone_url("git@github.com:acme/api.git"),
+            "https://github.com/acme/api.git"
+        );
+        assert_eq!(
+            to_https_clone_url("ssh://git@github.com/acme/api.git"),
+            "https://github.com/acme/api.git"
+        );
+        // Port and user are dropped from the ssh:// form.
+        assert_eq!(
+            to_https_clone_url("ssh://git@gitlab.example.com:2222/grp/sub/api.git"),
+            "https://gitlab.example.com/grp/sub/api.git"
+        );
+    }
+
+    #[test]
+    fn leaves_https_and_local_paths_untouched() {
+        assert_eq!(
+            to_https_clone_url("https://github.com/acme/api.git"),
+            "https://github.com/acme/api.git"
+        );
+        assert_eq!(to_https_clone_url("/repos/api"), "/repos/api");
+        assert_eq!(to_https_clone_url("C:/repos/api"), "C:/repos/api");
     }
 }
