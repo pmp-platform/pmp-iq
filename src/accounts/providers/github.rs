@@ -117,17 +117,6 @@ impl GitHubProvider {
         }
     }
 
-    /// The paginated repository-listing URL: org-scoped when an organization is
-    /// configured, otherwise the token's own repositories.
-    fn repos_url(&self, page: u32) -> String {
-        match &self.organization {
-            Some(org) => {
-                format!("{}/orgs/{org}/repos?per_page=100&page={page}", self.base_url)
-            }
-            None => format!("{}/user/repos?per_page=100&page={page}", self.base_url),
-        }
-    }
-
     fn request(&self, url: &str) -> HttpRequest {
         self.authed(HttpRequest::get(url))
     }
@@ -190,7 +179,7 @@ impl RepositoryProvider for GitHubProvider {
     async fn list_repositories(&self) -> Result<Vec<RemoteRepo>, ProviderError> {
         let mut out = Vec::new();
         for page in 1..=MAX_PAGES {
-            let url = self.repos_url(page);
+            let url = format!("{}/user/repos?per_page=100&page={page}", self.base_url);
             let resp = self
                 .http
                 .send(self.request(&url))
@@ -210,7 +199,10 @@ impl RepositoryProvider for GitHubProvider {
                 private: r.private,
             }));
         }
-        Ok(out)
+        // An account-configured organization scopes the token's visible repos
+        // to that namespace (keeps outside-collaborator repos the org-only
+        // listing endpoint would omit).
+        Ok(super::scope_to_namespace(out, &self.organization))
     }
 
     async fn list_members(&self, repo_full_name: &str) -> Result<Vec<RepoMember>, ProviderError> {
@@ -437,27 +429,45 @@ mod tests {
         assert!(provider.list_repositories().await.is_ok());
     }
 
+    /// Two accessible repos across a page; only those under the configured org
+    /// namespace survive (still listed via the token-scoped `/user/repos`, so
+    /// outside-collaborator repos are included).
+    const MIXED_REPOS: &str = r#"[
+        {"name":"api","full_name":"acme/api","clone_url":"u1","default_branch":"main","private":true},
+        {"name":"lib","full_name":"other/lib","clone_url":"u2","default_branch":"main","private":false}
+    ]"#;
+
     #[tokio::test]
-    async fn organization_scopes_listing_to_org_repos() {
+    async fn organization_filters_listing_to_namespace() {
         let mut http = MockHttpClient::new();
+        let mut call = 0;
         http.expect_send()
-            .withf(|req| req.url.contains("/orgs/acme/repos"))
-            .returning(|_| Ok(ok("[]")));
+            .withf(|req| req.url.contains("/user/repos"))
+            .returning(move |_| {
+                call += 1;
+                Ok(if call == 1 { ok(MIXED_REPOS) } else { ok("[]") })
+            });
         let provider =
             GitHubProvider::new(Arc::new(http), Some("t".into()), None, Some("acme".into()));
-        assert!(provider.list_repositories().await.is_ok());
+        let repos = provider.list_repositories().await.unwrap();
+        assert_eq!(repos.len(), 1);
+        assert_eq!(repos[0].full_name, "acme/api");
     }
 
     #[tokio::test]
-    async fn blank_organization_lists_token_repos() {
+    async fn blank_organization_lists_all_token_repos() {
         let mut http = MockHttpClient::new();
+        let mut call = 0;
         http.expect_send()
             .withf(|req| req.url.contains("/user/repos"))
-            .returning(|_| Ok(ok("[]")));
-        // A blank organization is treated as unset (token-scoped listing).
+            .returning(move |_| {
+                call += 1;
+                Ok(if call == 1 { ok(MIXED_REPOS) } else { ok("[]") })
+            });
+        // A blank organization is treated as unset: no namespace filtering.
         let provider =
             GitHubProvider::new(Arc::new(http), Some("t".into()), None, Some("  ".into()));
-        assert!(provider.list_repositories().await.is_ok());
+        assert_eq!(provider.list_repositories().await.unwrap().len(), 2);
     }
 
     fn pr_spec() -> PullRequestSpec {

@@ -406,9 +406,10 @@ harness in `tests/common/`.
 1. **Log in** — admin from env, or the generated password printed at boot.
 2. **Settings → Repository accounts** — add a GitHub/GitLab/local account, test
    the connection, preview the selected repositories. Optionally set an
-   **organization / group**: when present, repositories are listed from that
-   namespace (GitHub `GET /orgs/{org}/repos`, GitLab `GET /groups/{group}/
-   projects`); left blank, the token's own repositories are listed as before.
+   **organization / group**: when present, the token's accessible repositories
+   are filtered to that namespace (`org/…`, subgroups included), so repos you
+   can reach as an outside collaborator with a personal token are still
+   included; left blank, all the token's repositories are listed as before.
 3. **Settings → AI agent profiles** — add/edit/validate an Anthropic or
    Claude-CLI profile (each exposes a `model` and a reasoning `effort`:
    `low`/`medium`/`high`/`xhigh`/`max`). An Anthropic profile requires an API key;

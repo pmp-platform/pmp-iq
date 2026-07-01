@@ -408,8 +408,10 @@ as tables and a connection graph.
   → `RepoMember`, implemented for GitHub via the collaborators API, empty default
   elsewhere), `selector` (`RepoSelector`), `service` (`AccountService` exposes
   `members_for`). An account carries an optional `organization`: when set the
-  GitHub/GitLab providers list from it (`/orgs/{org}/repos`, `/groups/{group}/
-  projects`) instead of the token's own repos; blank = today's behaviour.
+  GitHub/GitLab providers filter the token's visible repos to that namespace
+  (`in_namespace`/`scope_to_namespace`, subgroups included) rather than switching
+  to an org-only listing endpoint — so outside-collaborator repos are kept; blank
+  = all visible repos.
 - `src/routes/` — axum routers, merged in `routes::router` (public vs
   `require_auth`-gated). Sessions via tower-sessions `MemoryStore`. `AppState`
   is built via `AppState::build` (validates `ENCRYPTION_KEY`). `routes/webhooks.rs`

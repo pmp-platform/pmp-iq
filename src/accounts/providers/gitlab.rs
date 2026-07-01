@@ -45,24 +45,6 @@ impl GitLabProvider {
         }
     }
 
-    /// The paginated project-listing URL: group-scoped when a group is
-    /// configured, otherwise every project the token is a member of.
-    fn projects_url(&self, page: u32) -> String {
-        match &self.organization {
-            Some(group) => {
-                let enc = crate::strings::percent_encode(group);
-                format!(
-                    "{}/api/v4/groups/{enc}/projects?include_subgroups=true&per_page=100&page={page}",
-                    self.base_url
-                )
-            }
-            None => format!(
-                "{}/api/v4/projects?membership=true&per_page=100&page={page}",
-                self.base_url
-            ),
-        }
-    }
-
     fn request(&self, url: &str) -> HttpRequest {
         let mut req = HttpRequest::get(url).header("User-Agent", "pmp-iq");
         if let Some(token) = &self.token {
@@ -98,7 +80,10 @@ impl RepositoryProvider for GitLabProvider {
     async fn list_repositories(&self) -> Result<Vec<RemoteRepo>, ProviderError> {
         let mut out = Vec::new();
         for page in 1..=MAX_PAGES {
-            let url = self.projects_url(page);
+            let url = format!(
+                "{}/api/v4/projects?membership=true&per_page=100&page={page}",
+                self.base_url
+            );
             let resp = self
                 .http
                 .send(self.request(&url))
@@ -118,7 +103,9 @@ impl RepositoryProvider for GitLabProvider {
                 private: p.visibility.as_deref() != Some("public"),
             }));
         }
-        Ok(out)
+        // A configured group scopes the token's visible projects to that
+        // namespace (subgroups included via the `group/…` path prefix).
+        Ok(super::scope_to_namespace(out, &self.organization))
     }
 }
 
@@ -143,26 +130,43 @@ mod tests {
         assert!(repos[0].private);
     }
 
-    #[tokio::test]
-    async fn organization_scopes_listing_to_group_projects() {
+    // Projects across a group and a nested subgroup, plus an unrelated one.
+    const GL_MIXED: &str = r#"[
+        {"path":"api","path_with_namespace":"acme/api","http_url_to_repo":"u1","default_branch":"main","visibility":"private"},
+        {"path":"svc","path_with_namespace":"acme/team/svc","http_url_to_repo":"u2","default_branch":"main","visibility":"private"},
+        {"path":"lib","path_with_namespace":"other/lib","http_url_to_repo":"u3","default_branch":"main","visibility":"public"}
+    ]"#;
+
+    fn gl_pages(body: &'static str) -> MockHttpClient {
         let mut http = MockHttpClient::new();
-        http.expect_send()
-            .withf(|req| req.url.contains("/api/v4/groups/acme/projects"))
-            .returning(|_| Ok(HttpResponse::new(200, "[]")));
-        let provider =
-            GitLabProvider::new(Arc::new(http), Some("t".into()), None, Some("acme".into()));
-        assert!(provider.list_repositories().await.is_ok());
+        let mut call = 0;
+        http.expect_send().returning(move |_| {
+            call += 1;
+            Ok(HttpResponse::new(200, if call == 1 { body } else { "[]" }))
+        });
+        http
     }
 
     #[tokio::test]
-    async fn nested_group_path_is_url_encoded() {
-        let mut http = MockHttpClient::new();
-        http.expect_send()
-            .withf(|req| req.url.contains("/api/v4/groups/acme%2Fteam/projects"))
-            .returning(|_| Ok(HttpResponse::new(200, "[]")));
+    async fn group_filters_listing_to_namespace_including_subgroups() {
         let provider =
-            GitLabProvider::new(Arc::new(http), Some("t".into()), None, Some("acme/team".into()));
-        assert!(provider.list_repositories().await.is_ok());
+            GitLabProvider::new(Arc::new(gl_pages(GL_MIXED)), Some("t".into()), None, Some("acme".into()));
+        let repos = provider.list_repositories().await.unwrap();
+        assert_eq!(repos.len(), 2);
+        assert!(repos.iter().all(|r| r.full_name.starts_with("acme/")));
+    }
+
+    #[tokio::test]
+    async fn subgroup_matches_only_nested_path() {
+        let provider = GitLabProvider::new(
+            Arc::new(gl_pages(GL_MIXED)),
+            Some("t".into()),
+            None,
+            Some("acme/team".into()),
+        );
+        let repos = provider.list_repositories().await.unwrap();
+        assert_eq!(repos.len(), 1);
+        assert_eq!(repos[0].full_name, "acme/team/svc");
     }
 
     #[tokio::test]

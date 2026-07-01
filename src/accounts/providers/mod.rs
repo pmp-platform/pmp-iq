@@ -100,6 +100,36 @@ impl From<ProviderError> for crate::error::AppError {
     }
 }
 
+/// Whether a repository's `full_name` (`namespace/...`) sits under the given
+/// organization/group namespace. Case-insensitive; a trailing/leading `/` on
+/// the namespace is ignored. The `/` in the prefix keeps `acme` from matching
+/// `acmecorp/...`, and a subgroup like `acme/team` matches `acme/team/...`.
+pub(crate) fn in_namespace(full_name: &str, namespace: &str) -> bool {
+    let ns = namespace.trim_matches('/');
+    if ns.is_empty() {
+        return true;
+    }
+    let prefix = format!("{}/", ns.to_ascii_lowercase());
+    full_name.to_ascii_lowercase().starts_with(&prefix)
+}
+
+/// Keep only the repositories under `namespace`; when `None`, pass all through.
+/// Used by the HTTP providers to scope a token's visible repositories to a
+/// configured organization/group (so repos the token can reach as an outside
+/// collaborator are still included — unlike an org-only listing endpoint).
+pub(crate) fn scope_to_namespace(
+    repos: Vec<RemoteRepo>,
+    namespace: &Option<String>,
+) -> Vec<RemoteRepo> {
+    match namespace {
+        Some(ns) => repos
+            .into_iter()
+            .filter(|r| in_namespace(&r.full_name, ns))
+            .collect(),
+        None => repos,
+    }
+}
+
 /// Derive a retry time from common rate-limit headers: `retry-after` (relative
 /// seconds) or `x-ratelimit-reset` / `ratelimit-reset` (absolute unix epoch).
 pub fn retry_at_from_headers(resp: &HttpResponse) -> Option<DateTime<Utc>> {
@@ -194,6 +224,47 @@ mod tests {
         let mut resp = HttpResponse::new(429, "");
         resp.headers.insert(header.into(), value.into());
         resp
+    }
+
+    #[test]
+    fn in_namespace_matches_case_insensitively_and_guards_prefix() {
+        assert!(in_namespace("acme/api", "acme"));
+        assert!(in_namespace("Acme/api", "acme"));
+        assert!(in_namespace("acme/api", "ACME"));
+        // A subgroup path matches only its own nested namespace.
+        assert!(in_namespace("acme/team/svc", "acme"));
+        assert!(in_namespace("acme/team/svc", "acme/team"));
+        assert!(!in_namespace("acme/api", "acme/team"));
+        // The trailing slash keeps `acme` from matching `acmecorp`.
+        assert!(!in_namespace("acmecorp/api", "acme"));
+        assert!(!in_namespace("other/lib", "acme"));
+        // An empty namespace matches everything (treated as unset).
+        assert!(in_namespace("acme/api", ""));
+    }
+
+    #[test]
+    fn scope_to_namespace_filters_or_passes_through() {
+        let repos = vec![
+            RemoteRepo {
+                name: "api".into(),
+                full_name: "acme/api".into(),
+                clone_url: "u".into(),
+                default_branch: None,
+                private: true,
+            },
+            RemoteRepo {
+                name: "lib".into(),
+                full_name: "other/lib".into(),
+                clone_url: "u".into(),
+                default_branch: None,
+                private: false,
+            },
+        ];
+        let scoped = scope_to_namespace(repos.clone(), &Some("acme".into()));
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].full_name, "acme/api");
+        // No namespace passes everything through.
+        assert_eq!(scope_to_namespace(repos, &None).len(), 2);
     }
 
     #[test]

@@ -34,16 +34,14 @@
   function closeModal(sel) { $(sel).addClass("hidden").removeClass("flex"); }
 
   // Generic modal wiring: open via [data-modal-open=id], close via
-  // [data-modal-close] or a backdrop click.
+  // [data-modal-close] or Escape. Clicking the backdrop does NOT close the
+  // modal, to avoid discarding in-progress edits by accident.
   function initModals() {
     $(document).on("click", "[data-modal-open]", function () {
       openModal("#" + $(this).data("modal-open"));
     });
     $(document).on("click", "[data-modal-close]", function () {
       closeModal($(this).closest(".modal"));
-    });
-    $(document).on("click", ".modal", function (e) {
-      if (e.target === this) closeModal(this);
     });
     $(document).on("keydown", function (e) {
       if (e.key === "Escape") closeModal(".modal");
