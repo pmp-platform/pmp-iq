@@ -107,6 +107,30 @@ impl RepositoryProvider for GitLabProvider {
         // namespace (subgroups included via the `group/…` path prefix).
         Ok(super::scope_to_namespace(out, &self.organization))
     }
+
+    async fn get_repository(&self, full_name: &str) -> Result<Option<RemoteRepo>, ProviderError> {
+        // The GitLab project API takes the URL-encoded `namespace/project` path.
+        let enc = crate::strings::percent_encode(full_name);
+        let url = format!("{}/api/v4/projects/{enc}", self.base_url);
+        let resp = self
+            .http
+            .send(self.request(&url))
+            .await
+            .map_err(|e| ProviderError::Request(e.to_string()))?;
+        if resp.status == 404 {
+            return Ok(None);
+        }
+        Self::check_status(&resp)?;
+        let p: GlProject =
+            serde_json::from_str(&resp.body).map_err(|e| ProviderError::Parse(e.to_string()))?;
+        Ok(Some(RemoteRepo {
+            name: p.path,
+            full_name: p.path_with_namespace,
+            clone_url: p.http_url_to_repo,
+            default_branch: p.default_branch,
+            private: p.visibility.as_deref() != Some("public"),
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -167,6 +191,26 @@ mod tests {
         let repos = provider.list_repositories().await.unwrap();
         assert_eq!(repos.len(), 1);
         assert_eq!(repos[0].full_name, "acme/team/svc");
+    }
+
+    #[tokio::test]
+    async fn get_repository_uses_encoded_path_and_maps_404() {
+        let mut http = MockHttpClient::new();
+        http.expect_send()
+            .withf(|req| req.url.ends_with("/api/v4/projects/acme%2Fteam%2Fsvc"))
+            .returning(|_| {
+                Ok(HttpResponse::new(
+                    200,
+                    r#"{"path":"svc","path_with_namespace":"acme/team/svc","http_url_to_repo":"u","default_branch":"main","visibility":"private"}"#,
+                ))
+            });
+        http.expect_send()
+            .withf(|req| req.url.ends_with("/api/v4/projects/acme%2Fgone"))
+            .returning(|_| Ok(HttpResponse::new(404, "")));
+        let provider = GitLabProvider::new(Arc::new(http), Some("t".into()), None, None);
+        let found = provider.get_repository("acme/team/svc").await.unwrap();
+        assert_eq!(found.unwrap().full_name, "acme/team/svc");
+        assert!(provider.get_repository("acme/gone").await.unwrap().is_none());
     }
 
     #[tokio::test]

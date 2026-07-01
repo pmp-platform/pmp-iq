@@ -76,4 +76,16 @@ mod tests {
         assert_eq!(repos[0].name, "api");
         assert_eq!(repos[0].clone_url, "/repos/api");
     }
+
+    #[tokio::test]
+    async fn default_get_repository_scans_the_listing() {
+        let mut fs = MockFileSystem::new();
+        fs.expect_list_subdirs()
+            .returning(|_| Ok(vec!["api".into(), "notes".into()]));
+        fs.expect_exists().returning(|p: &str| p.ends_with("api/.git"));
+
+        let provider = LocalProvider::new(Arc::new(fs), "/repos".into());
+        assert_eq!(provider.get_repository("api").await.unwrap().unwrap().name, "api");
+        assert!(provider.get_repository("notes").await.unwrap().is_none());
+    }
 }

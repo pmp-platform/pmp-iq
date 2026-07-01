@@ -407,11 +407,14 @@ as tables and a connection graph.
   `RepositoryProviderFactory` over `ProviderDeps`; `RepositoryProvider::list_members`
   → `RepoMember`, implemented for GitHub via the collaborators API, empty default
   elsewhere), `selector` (`RepoSelector`), `service` (`AccountService` exposes
-  `members_for`). An account carries an optional `organization`: when set the
-  GitHub/GitLab providers filter the token's visible repos to that namespace
-  (`in_namespace`/`scope_to_namespace`, subgroups included) rather than switching
-  to an org-only listing endpoint — so outside-collaborator repos are kept; blank
-  = all visible repos.
+  `members_for`). An account carries an optional `organization`: for All/regex
+  selection the GitHub/GitLab providers filter the token's visible repos to that
+  namespace (`in_namespace`/`scope_to_namespace`, subgroups included); for List
+  selection `select_for` resolves each entry directly via
+  `RepositoryProvider::get_repository` (`GET /repos/{owner}/{repo}`, GitLab
+  `/projects/{enc}`; bare names org-prefixed) so a token's outside-collaborator
+  repos are found even when a listing omits them. Default `get_repository` scans
+  the listing (Local).
 - `src/routes/` — axum routers, merged in `routes::router` (public vs
   `require_auth`-gated). Sessions via tower-sessions `MemoryStore`. `AppState`
   is built via `AppState::build` (validates `ENCRYPTION_KEY`). `routes/webhooks.rs`

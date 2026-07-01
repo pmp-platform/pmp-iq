@@ -6,7 +6,7 @@ use super::model::{
 };
 use super::providers::{
     PrCheck, PrComment, PrStatus, ProviderDeps, PullRequest, PullRequestSpec, RepoMember,
-    RepositoryProviderFactory,
+    RepositoryProvider, RepositoryProviderFactory,
 };
 use super::repository::RepositoryAccountRepository;
 use super::selector::RepoSelector;
@@ -216,13 +216,85 @@ impl AccountService {
     ) -> Result<Vec<RemoteRepo>, AppError> {
         let provider = RepositoryProviderFactory::build(account, &self.deps)
             .map_err(AppError::from)?;
-        let all = provider.list_repositories().await.map_err(AppError::from)?;
-        RepoSelector::select(
-            account.selection_mode,
-            account.selection_value.as_deref(),
-            all,
-        )
-        .map_err(|e| AppError::BadRequest(e.to_string()))
+        match account.selection_mode {
+            // An explicit list is resolved per-repo directly, so repositories a
+            // personal token can reach — e.g. as an outside collaborator in an
+            // organization — are found regardless of listing/pagination limits.
+            SelectionMode::List => self.select_explicit(provider.as_ref(), account).await,
+            _ => {
+                let all = provider.list_repositories().await.map_err(AppError::from)?;
+                RepoSelector::select(
+                    account.selection_mode,
+                    account.selection_value.as_deref(),
+                    all,
+                )
+                .map_err(|e| AppError::BadRequest(e.to_string()))
+            }
+        }
+    }
+
+    /// Resolve an explicit repository list. Entries carrying an `owner/name`
+    /// (or a bare `name` when the account has an organization) are fetched
+    /// directly; bare names without an organization fall back to matching the
+    /// account's repository listing by name.
+    async fn select_explicit(
+        &self,
+        provider: &dyn RepositoryProvider,
+        account: &RepositoryAccount,
+    ) -> Result<Vec<RemoteRepo>, AppError> {
+        let wanted = parse_selection_list(account.selection_value.as_deref())?;
+        let org = account.organization.as_deref();
+        let mut out: Vec<RemoteRepo> = Vec::new();
+        let mut bare: Vec<String> = Vec::new();
+        for entry in &wanted {
+            match qualified_name(entry, org) {
+                Some(full) => {
+                    if let Some(repo) =
+                        provider.get_repository(&full).await.map_err(AppError::from)?
+                    {
+                        push_unique(&mut out, repo);
+                    }
+                }
+                None => bare.push(entry.trim().to_string()),
+            }
+        }
+        if !bare.is_empty() {
+            let all = provider.list_repositories().await.map_err(AppError::from)?;
+            for repo in all.into_iter().filter(|r| bare.iter().any(|w| w == &r.name)) {
+                push_unique(&mut out, repo);
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Parse the stored `List` selection value (a JSON array of repository names).
+fn parse_selection_list(value: Option<&str>) -> Result<Vec<String>, AppError> {
+    serde_json::from_str(value.unwrap_or("[]"))
+        .map_err(|e| AppError::BadRequest(format!("invalid repository list: {e}")))
+}
+
+/// Build the `owner/name` to fetch for a list entry: keep it when it already
+/// carries an owner, else prefix the organization. A bare name without an
+/// organization returns `None` (resolved via listing instead).
+fn qualified_name(entry: &str, organization: Option<&str>) -> Option<String> {
+    let entry = entry.trim();
+    if entry.is_empty() {
+        return None;
+    }
+    if entry.contains('/') {
+        return Some(entry.to_string());
+    }
+    organization
+        .map(str::trim)
+        .filter(|o| !o.is_empty())
+        .map(|org| format!("{org}/{entry}"))
+}
+
+/// Append `repo` unless one with the same `full_name` is already present.
+fn push_unique(out: &mut Vec<RemoteRepo>, repo: RemoteRepo) {
+    if !out.iter().any(|r| r.full_name == repo.full_name) {
+        out.push(repo);
     }
 }
 
@@ -319,6 +391,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn select_for_list_resolves_repos_directly() {
+        let mut http = MockHttpClient::new();
+        // Bare "api" is org-prefixed → /repos/acme/api; "acme/web" used as-is.
+        http.expect_send()
+            .withf(|r| r.url.ends_with("/repos/acme/api"))
+            .returning(|_| {
+                Ok(HttpResponse::new(
+                    200,
+                    r#"{"name":"api","full_name":"acme/api","clone_url":"u","default_branch":"main","private":true}"#,
+                ))
+            });
+        http.expect_send()
+            .withf(|r| r.url.ends_with("/repos/acme/web"))
+            .returning(|_| {
+                Ok(HttpResponse::new(
+                    200,
+                    r#"{"name":"web","full_name":"acme/web","clone_url":"u","default_branch":"main","private":true}"#,
+                ))
+            });
+        let account = RepositoryAccount {
+            id: Uuid::new_v4(),
+            name: "gh".into(),
+            provider_type: ProviderType::Github,
+            auth_type: AuthType::Token,
+            base_url: None,
+            organization: Some("acme".into()),
+            credentials_enc: Some(vec![1]),
+            selection_mode: SelectionMode::List,
+            selection_value: Some(r#"["api","acme/web"]"#.into()),
+            enabled: true,
+        };
+        let svc = AccountService::new(
+            Arc::new(MockRepositoryAccountRepository::new()),
+            deps_with_http(http),
+        );
+        let repos = svc.select_for(&account).await.unwrap();
+        let names: Vec<_> = repos.iter().map(|r| r.full_name.as_str()).collect();
+        assert_eq!(names, vec!["acme/api", "acme/web"]);
+    }
+
+    #[tokio::test]
     async fn members_for_lists_collaborators() {
         let mut http = MockHttpClient::new();
         let mut call = 0;
@@ -337,6 +450,32 @@ mod tests {
         let members = svc.members_for(&github_account(), "org/api").await.unwrap();
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].username, "alice");
+    }
+
+    #[test]
+    fn qualified_name_prefixes_org_for_bare_entries_only() {
+        assert_eq!(qualified_name("api", Some("acme")).as_deref(), Some("acme/api"));
+        assert_eq!(qualified_name("other/lib", Some("acme")).as_deref(), Some("other/lib"));
+        assert_eq!(qualified_name(" api ", Some(" acme ")).as_deref(), Some("acme/api"));
+        // Bare name without an organization can't be qualified.
+        assert!(qualified_name("api", None).is_none());
+        assert!(qualified_name("  ", Some("acme")).is_none());
+    }
+
+    #[test]
+    fn push_unique_dedupes_by_full_name() {
+        let mut out = Vec::new();
+        let mk = |full: &str| RemoteRepo {
+            name: full.into(),
+            full_name: full.into(),
+            clone_url: "u".into(),
+            default_branch: None,
+            private: false,
+        };
+        push_unique(&mut out, mk("acme/api"));
+        push_unique(&mut out, mk("acme/api"));
+        push_unique(&mut out, mk("acme/web"));
+        assert_eq!(out.len(), 2);
     }
 
     #[tokio::test]

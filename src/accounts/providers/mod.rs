@@ -152,6 +152,22 @@ pub trait RepositoryProvider: Send + Sync {
     /// List all repositories visible to the account (before selection).
     async fn list_repositories(&self) -> Result<Vec<RemoteRepo>, ProviderError>;
 
+    /// Fetch a single repository by its `owner/name`, returning `None` when it
+    /// is absent/inaccessible. The default scans `list_repositories`; HTTP
+    /// providers override with a direct lookup so a token can resolve a repo
+    /// (e.g. one it reaches as an outside collaborator) that a listing endpoint
+    /// may omit.
+    async fn get_repository(
+        &self,
+        full_name: &str,
+    ) -> Result<Option<RemoteRepo>, ProviderError> {
+        Ok(self
+            .list_repositories()
+            .await?
+            .into_iter()
+            .find(|r| r.full_name == full_name))
+    }
+
     /// List the members/collaborators of a repository. Providers without a
     /// member concept (e.g. local) inherit this empty default.
     async fn list_members(&self, _repo_full_name: &str) -> Result<Vec<RepoMember>, ProviderError> {

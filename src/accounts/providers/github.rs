@@ -205,6 +205,28 @@ impl RepositoryProvider for GitHubProvider {
         Ok(super::scope_to_namespace(out, &self.organization))
     }
 
+    async fn get_repository(&self, full_name: &str) -> Result<Option<RemoteRepo>, ProviderError> {
+        let url = format!("{}/repos/{full_name}", self.base_url);
+        let resp = self
+            .http
+            .send(self.request(&url))
+            .await
+            .map_err(|e| ProviderError::Request(e.to_string()))?;
+        if resp.status == 404 {
+            return Ok(None);
+        }
+        Self::check_status(&resp)?;
+        let r: GhRepo =
+            serde_json::from_str(&resp.body).map_err(|e| ProviderError::Parse(e.to_string()))?;
+        Ok(Some(RemoteRepo {
+            name: r.name,
+            full_name: r.full_name,
+            clone_url: r.clone_url,
+            default_branch: r.default_branch,
+            private: r.private,
+        }))
+    }
+
     async fn list_members(&self, repo_full_name: &str) -> Result<Vec<RepoMember>, ProviderError> {
         let mut out = Vec::new();
         for page in 1..=MAX_PAGES {
@@ -468,6 +490,25 @@ mod tests {
         let provider =
             GitHubProvider::new(Arc::new(http), Some("t".into()), None, Some("  ".into()));
         assert_eq!(provider.list_repositories().await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn get_repository_fetches_directly_and_maps_404_to_none() {
+        let mut http = MockHttpClient::new();
+        http.expect_send()
+            .withf(|req| req.url.ends_with("/repos/acme/api"))
+            .returning(|_| {
+                Ok(ok(
+                    r#"{"name":"api","full_name":"acme/api","clone_url":"https://x/api.git","default_branch":"main","private":true}"#,
+                ))
+            });
+        http.expect_send()
+            .withf(|req| req.url.ends_with("/repos/acme/missing"))
+            .returning(|_| Ok(HttpResponse::new(404, r#"{"message":"Not Found"}"#)));
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None, None);
+        let found = provider.get_repository("acme/api").await.unwrap();
+        assert_eq!(found.unwrap().full_name, "acme/api");
+        assert!(provider.get_repository("acme/missing").await.unwrap().is_none());
     }
 
     fn pr_spec() -> PullRequestSpec {
