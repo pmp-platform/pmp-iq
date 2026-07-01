@@ -27,6 +27,7 @@ struct AccountRow {
     provider_type: String,
     auth_type: String,
     base_url: Option<String>,
+    organization: Option<String>,
     credentials_enc: Option<Vec<u8>>,
     selection_mode: String,
     selection_value: Option<String>,
@@ -44,6 +45,7 @@ impl TryFrom<AccountRow> for RepositoryAccount {
             provider_type: ProviderType::parse(&row.provider_type).map_err(map)?,
             auth_type: AuthType::parse(&row.auth_type).map_err(map)?,
             base_url: row.base_url,
+            organization: row.organization,
             credentials_enc: row.credentials_enc,
             selection_mode: SelectionMode::parse(&row.selection_mode).map_err(map)?,
             selection_value: row.selection_value,
@@ -52,7 +54,7 @@ impl TryFrom<AccountRow> for RepositoryAccount {
     }
 }
 
-const COLS: &str = "id, name, provider_type, auth_type, base_url, credentials_enc, \
+const COLS: &str = "id, name, provider_type, auth_type, base_url, organization, credentials_enc, \
      selection_mode, selection_value, enabled";
 
 macro_rules! account_repo_impl {
@@ -71,17 +73,18 @@ macro_rules! account_repo_impl {
                 let id = Uuid::new_v4();
                 let row: AccountRow = sqlx::query_as(&$xform(
                     "INSERT INTO repository_accounts \
-                     (id, name, provider_type, auth_type, base_url, credentials_enc, \
+                     (id, name, provider_type, auth_type, base_url, organization, credentials_enc, \
                       selection_mode, selection_value, enabled) \
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) \
-                     RETURNING id, name, provider_type, auth_type, base_url, credentials_enc, \
-                               selection_mode, selection_value, enabled",
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) \
+                     RETURNING id, name, provider_type, auth_type, base_url, organization, \
+                               credentials_enc, selection_mode, selection_value, enabled",
                 ))
                 .bind(id)
                 .bind(&input.name)
                 .bind(input.provider_type.as_str())
                 .bind(input.auth_type.as_str())
                 .bind(&input.base_url)
+                .bind(&input.organization)
                 .bind(&input.credentials_enc)
                 .bind(input.selection_mode.as_str())
                 .bind(&input.selection_value)
@@ -94,16 +97,17 @@ macro_rules! account_repo_impl {
             async fn update(&self, id: Uuid, input: AccountInput) -> RepoResult<RepositoryAccount> {
                 let row: AccountRow = sqlx::query_as(&$xform(
                     "UPDATE repository_accounts SET name=$2, provider_type=$3, auth_type=$4, \
-                     base_url=$5, credentials_enc=$6, selection_mode=$7, selection_value=$8, \
-                     enabled=$9, updated_at=CURRENT_TIMESTAMP WHERE id=$1 \
-                     RETURNING id, name, provider_type, auth_type, base_url, credentials_enc, \
-                               selection_mode, selection_value, enabled",
+                     base_url=$5, organization=$6, credentials_enc=$7, selection_mode=$8, \
+                     selection_value=$9, enabled=$10, updated_at=CURRENT_TIMESTAMP WHERE id=$1 \
+                     RETURNING id, name, provider_type, auth_type, base_url, organization, \
+                               credentials_enc, selection_mode, selection_value, enabled",
                 ))
                 .bind(id)
                 .bind(&input.name)
                 .bind(input.provider_type.as_str())
                 .bind(input.auth_type.as_str())
                 .bind(&input.base_url)
+                .bind(&input.organization)
                 .bind(&input.credentials_enc)
                 .bind(input.selection_mode.as_str())
                 .bind(&input.selection_value)

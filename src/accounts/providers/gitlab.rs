@@ -24,15 +24,42 @@ pub struct GitLabProvider {
     http: Arc<dyn HttpClient>,
     token: Option<String>,
     base_url: String,
+    /// Optional group to scope project listing to; `None` lists all projects
+    /// the token is a member of.
+    organization: Option<String>,
 }
 
 impl GitLabProvider {
-    pub fn new(http: Arc<dyn HttpClient>, token: Option<String>, base_url: Option<String>) -> Self {
+    pub fn new(
+        http: Arc<dyn HttpClient>,
+        token: Option<String>,
+        base_url: Option<String>,
+        organization: Option<String>,
+    ) -> Self {
         Self {
             http,
             token,
             base_url: crate::strings::blank_to_none(base_url)
                 .unwrap_or_else(|| DEFAULT_API.to_string()),
+            organization: crate::strings::blank_to_none(organization),
+        }
+    }
+
+    /// The paginated project-listing URL: group-scoped when a group is
+    /// configured, otherwise every project the token is a member of.
+    fn projects_url(&self, page: u32) -> String {
+        match &self.organization {
+            Some(group) => {
+                let enc = crate::strings::percent_encode(group);
+                format!(
+                    "{}/api/v4/groups/{enc}/projects?include_subgroups=true&per_page=100&page={page}",
+                    self.base_url
+                )
+            }
+            None => format!(
+                "{}/api/v4/projects?membership=true&per_page=100&page={page}",
+                self.base_url
+            ),
         }
     }
 
@@ -71,10 +98,7 @@ impl RepositoryProvider for GitLabProvider {
     async fn list_repositories(&self) -> Result<Vec<RemoteRepo>, ProviderError> {
         let mut out = Vec::new();
         for page in 1..=MAX_PAGES {
-            let url = format!(
-                "{}/api/v4/projects?membership=true&per_page=100&page={page}",
-                self.base_url
-            );
+            let url = self.projects_url(page);
             let resp = self
                 .http
                 .send(self.request(&url))
@@ -112,7 +136,7 @@ mod tests {
             call += 1;
             Ok(HttpResponse::new(200, if call == 1 { body } else { "[]" }))
         });
-        let provider = GitLabProvider::new(Arc::new(http), Some("t".into()), None);
+        let provider = GitLabProvider::new(Arc::new(http), Some("t".into()), None, None);
         let repos = provider.list_repositories().await.unwrap();
         assert_eq!(repos.len(), 1);
         assert_eq!(repos[0].full_name, "grp/api");
@@ -120,10 +144,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn organization_scopes_listing_to_group_projects() {
+        let mut http = MockHttpClient::new();
+        http.expect_send()
+            .withf(|req| req.url.contains("/api/v4/groups/acme/projects"))
+            .returning(|_| Ok(HttpResponse::new(200, "[]")));
+        let provider =
+            GitLabProvider::new(Arc::new(http), Some("t".into()), None, Some("acme".into()));
+        assert!(provider.list_repositories().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn nested_group_path_is_url_encoded() {
+        let mut http = MockHttpClient::new();
+        http.expect_send()
+            .withf(|req| req.url.contains("/api/v4/groups/acme%2Fteam/projects"))
+            .returning(|_| Ok(HttpResponse::new(200, "[]")));
+        let provider =
+            GitLabProvider::new(Arc::new(http), Some("t".into()), None, Some("acme/team".into()));
+        assert!(provider.list_repositories().await.is_ok());
+    }
+
+    #[tokio::test]
     async fn validate_succeeds_on_200() {
         let mut http = MockHttpClient::new();
         http.expect_send().returning(|_| Ok(HttpResponse::new(200, "{}")));
-        let provider = GitLabProvider::new(Arc::new(http), Some("t".into()), None);
+        let provider = GitLabProvider::new(Arc::new(http), Some("t".into()), None, None);
         assert!(provider.validate().await.is_ok());
     }
 
@@ -134,7 +180,7 @@ mod tests {
             .withf(|req| req.url.starts_with("https://gitlab.com/"))
             .returning(|_| Ok(HttpResponse::new(401, "")));
         // A blank base URL falls back to the default API host.
-        let provider = GitLabProvider::new(Arc::new(http), None, Some("  ".into()));
+        let provider = GitLabProvider::new(Arc::new(http), None, Some("  ".into()), None);
         assert!(matches!(provider.validate().await, Err(ProviderError::Auth)));
     }
 
@@ -142,12 +188,12 @@ mod tests {
     async fn rate_limited_and_server_errors_map() {
         let mut http = MockHttpClient::new();
         http.expect_send().returning(|_| Ok(HttpResponse::new(429, "")));
-        let provider = GitLabProvider::new(Arc::new(http), Some("t".into()), None);
+        let provider = GitLabProvider::new(Arc::new(http), Some("t".into()), None, None);
         assert!(matches!(provider.validate().await, Err(ProviderError::RateLimited { .. })));
 
         let mut http2 = MockHttpClient::new();
         http2.expect_send().returning(|_| Ok(HttpResponse::new(500, "")));
-        let provider2 = GitLabProvider::new(Arc::new(http2), Some("t".into()), None);
+        let provider2 = GitLabProvider::new(Arc::new(http2), Some("t".into()), None, None);
         assert!(matches!(provider2.validate().await, Err(ProviderError::Request(_))));
     }
 }

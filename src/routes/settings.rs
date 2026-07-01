@@ -45,6 +45,8 @@ struct AccountPayload {
     #[serde(default)]
     base_url: Option<String>,
     #[serde(default)]
+    organization: Option<String>,
+    #[serde(default)]
     token: Option<String>,
     selection_mode: SelectionMode,
     #[serde(default)]
@@ -64,6 +66,7 @@ impl From<AccountPayload> for AccountForm {
             provider_type: p.provider_type,
             auth_type: p.auth_type,
             base_url: p.base_url,
+            organization: p.organization,
             token: p.token,
             selection_mode: p.selection_mode,
             selection_value: p.selection_value,
@@ -80,6 +83,7 @@ struct AccountView {
     provider_type: ProviderType,
     auth_type: AuthType,
     base_url: Option<String>,
+    organization: Option<String>,
     selection_mode: SelectionMode,
     selection_value: Option<String>,
     enabled: bool,
@@ -94,6 +98,7 @@ impl From<&RepositoryAccount> for AccountView {
             provider_type: a.provider_type,
             auth_type: a.auth_type,
             base_url: a.base_url.clone(),
+            organization: a.organization.clone(),
             selection_mode: a.selection_mode,
             selection_value: a.selection_value.clone(),
             enabled: a.enabled,

@@ -29,11 +29,13 @@ impl RepositoryProviderFactory {
                 deps.http.clone(),
                 token,
                 account.base_url.clone(),
+                account.organization.clone(),
             ))),
             ProviderType::Gitlab => Ok(Box::new(GitLabProvider::new(
                 deps.http.clone(),
                 token,
                 account.base_url.clone(),
+                account.organization.clone(),
             ))),
             ProviderType::Local => {
                 let path = account.base_url.clone().ok_or_else(|| {
@@ -89,6 +91,7 @@ mod tests {
             provider_type: provider,
             auth_type: AuthType::Token,
             base_url: base_url.map(String::from),
+            organization: None,
             credentials_enc: Some(vec![1, 2, 3]),
             selection_mode: SelectionMode::All,
             selection_value: None,

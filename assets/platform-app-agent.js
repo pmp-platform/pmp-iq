@@ -114,7 +114,7 @@
     var $form = $('<div class="mt-2 border-t border-slate-100 pt-2 space-y-2"></div>');
     var $ta = $('<textarea rows="2" class="w-full border border-slate-300 rounded px-2 py-1 text-sm" ' +
       'placeholder="Send a follow-up instruction…"></textarea>');
-    var $btn = $('<button type="button" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200 disabled:opacity-50">Send</button>');
+    var $btn = $('<button type="button" class="btn btn-primary btn-sm">Send</button>');
     $btn.on("click", function () { sendMessage(task.id, $ta, $btn); });
     $form.append($ta).append('<div class="flex justify-end">').find("div").append($btn);
     $into.append($form);
@@ -182,7 +182,7 @@
           '<textarea id="agent-new-message" rows="3" class="w-full border border-slate-300 rounded px-2 py-1 text-sm" placeholder="Describe the change you want the agent to make…"></textarea>' +
           '<div class="flex items-center justify-between gap-2">' +
             '<span id="agent-create-error" class="text-xs text-red-600"></span>' +
-            '<button id="agent-create" type="button" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200 disabled:opacity-50">Create task</button>' +
+            '<button id="agent-create" type="button" class="btn btn-primary btn-sm">Create task</button>' +
           "</div>" +
         "</div>" +
         '<div id="agent-task-list" class="space-y-2"></div>' +

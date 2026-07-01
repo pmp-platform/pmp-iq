@@ -56,7 +56,7 @@
       '<input data-kind-name placeholder="Friendly name" class="border rounded px-2 py-1 text-sm w-44" />' +
       '<input data-kind-desc placeholder="Description" class="border rounded px-2 py-1 text-sm w-56" />' +
       (hasConfig ? '<input data-kind-config placeholder="config JSON (optional)" class="border rounded px-2 py-1 text-sm font-mono w-56" />' : "") +
-      '<button type="button" data-add class="bg-blue-100 text-blue-700 rounded px-3 py-1 text-sm font-medium hover:bg-blue-200">Add</button>';
+      '<button type="button" data-add class="btn btn-primary">Add</button>';
     return '<div class="bg-white rounded-lg shadow border border-slate-200 p-4" data-entity="' + entity + '">' +
       '<h2 class="text-base font-semibold mb-2">' + esc(label) + "</h2>" +
       '<table class="w-full text-sm mb-2"><thead class="text-left text-slate-500 border-b"><tr>' + head +

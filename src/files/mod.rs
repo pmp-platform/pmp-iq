@@ -91,6 +91,14 @@ impl FileBrowser {
     /// The text content of a file, capped in size and rejecting binary files.
     pub fn read(&self, root: &str, rel: &str) -> Result<FileContent, FileError> {
         let path = safe_join(root, rel)?;
+        // A stored path may point at a directory (e.g. an LLM-emitted component
+        // "file" that is actually a module directory). Reading a directory
+        // yields an opaque OS error — "Access is denied (os error 5)" on Windows
+        // — so reject anything that isn't a regular file up front with a clean
+        // not-found instead.
+        if !self.fs.is_file(&path) {
+            return Err(FileError::NotFound);
+        }
         let content = self
             .fs
             .read_to_string(&path)
@@ -140,6 +148,8 @@ mod tests {
     #[test]
     fn read_rejects_binary_and_missing() {
         let mut fs = MockFileSystem::new();
+        // Only "bin" resolves to a real file; "missing" is not a file.
+        fs.expect_is_file().returning(|p: &str| p.ends_with("bin"));
         fs.expect_read_to_string().returning(|p: &str| {
             if p.ends_with("bin") {
                 Ok(Some("a\u{0}b".to_string()))
@@ -150,5 +160,14 @@ mod tests {
         let browser = FileBrowser::new(Arc::new(fs));
         assert!(matches!(browser.read("/repo", "bin"), Err(FileError::Binary)));
         assert!(matches!(browser.read("/repo", "missing"), Err(FileError::NotFound)));
+    }
+
+    #[test]
+    fn read_treats_a_directory_as_not_found() {
+        let mut fs = MockFileSystem::new();
+        // A path that exists but is a directory must not surface an OS error.
+        fs.expect_is_file().returning(|_| false);
+        let browser = FileBrowser::new(Arc::new(fs));
+        assert!(matches!(browser.read("/repo", "src/storage"), Err(FileError::NotFound)));
     }
 }

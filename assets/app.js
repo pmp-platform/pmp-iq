@@ -87,8 +87,8 @@
           '<div class="bg-white rounded-lg shadow-lg w-full max-w-sm p-5">' +
             '<p id="confirm-message" class="mb-4"></p>' +
             '<div class="flex justify-end gap-2">' +
-              '<button type="button" data-modal-close class="bg-red-100 text-red-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-red-200">Cancel</button>' +
-              '<button type="button" id="confirm-ok" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">Confirm</button>' +
+              '<button type="button" data-modal-close class="btn btn-danger btn-sm">Cancel</button>' +
+              '<button type="button" id="confirm-ok" class="btn btn-primary btn-sm">Confirm</button>' +
             "</div>" +
           "</div>" +
         "</div>"
@@ -141,7 +141,7 @@
   function refreshButton(onClick) {
     var $btn = $(
       '<button type="button" title="Refresh" ' +
-        'class="bg-slate-100 text-slate-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-slate-200">' +
+        'class="btn btn-secondary btn-sm">' +
         "↻ Refresh</button>"
     );
     $btn.on("click", onClick);

@@ -21,6 +21,9 @@ pub trait FileSystem: Send + Sync {
     /// Whether a path exists.
     fn exists(&self, path: &str) -> bool;
 
+    /// Whether a path exists and is a regular file (not a directory).
+    fn is_file(&self, path: &str) -> bool;
+
     /// Read a file to a string, returning `None` if it does not exist.
     fn read_to_string(&self, path: &str) -> Result<Option<String>, FsError>;
 
@@ -62,6 +65,10 @@ impl FileSystem for RealFileSystem {
 
     fn exists(&self, path: &str) -> bool {
         Path::new(path).exists()
+    }
+
+    fn is_file(&self, path: &str) -> bool {
+        Path::new(path).is_file()
     }
 
     fn read_to_string(&self, path: &str) -> Result<Option<String>, FsError> {

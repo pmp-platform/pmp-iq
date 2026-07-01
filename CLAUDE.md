@@ -407,7 +407,9 @@ as tables and a connection graph.
   `RepositoryProviderFactory` over `ProviderDeps`; `RepositoryProvider::list_members`
   → `RepoMember`, implemented for GitHub via the collaborators API, empty default
   elsewhere), `selector` (`RepoSelector`), `service` (`AccountService` exposes
-  `members_for`).
+  `members_for`). An account carries an optional `organization`: when set the
+  GitHub/GitLab providers list from it (`/orgs/{org}/repos`, `/groups/{group}/
+  projects`) instead of the token's own repos; blank = today's behaviour.
 - `src/routes/` — axum routers, merged in `routes::router` (public vs
   `require_auth`-gated). Sessions via tower-sessions `MemoryStore`. `AppState`
   is built via `AppState::build` (validates `ENCRYPTION_KEY`). `routes/webhooks.rs`

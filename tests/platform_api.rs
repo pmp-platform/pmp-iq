@@ -40,6 +40,7 @@ async fn seed_app(db: &TestDb, app_name: &str) -> Uuid {
             provider_type: ProviderType::Local,
             auth_type: AuthType::None,
             base_url: Some("/repos".into()),
+            organization: None,
             credentials_enc: None,
             selection_mode: SelectionMode::All,
             selection_value: None,

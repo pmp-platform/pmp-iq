@@ -60,7 +60,7 @@
                 'placeholder="e.g. How does authentication work in this repository?"></textarea>' +
               '<div class="flex items-center justify-between gap-2">' +
                 '<span id="ask-status" class="text-xs text-slate-500"></span>' +
-                '<button id="ask-submit" type="button" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200 disabled:opacity-50">Ask</button>' +
+                '<button id="ask-submit" type="button" class="btn btn-primary btn-sm">Ask</button>' +
               "</div>" +
             "</div>" +
             '<div id="ask-tab-history" class="hidden space-y-2"></div>' +

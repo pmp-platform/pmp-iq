@@ -33,6 +33,7 @@ async fn make_repo(db: &SqliteDb, full_name: &str) -> Uuid {
             provider_type: ProviderType::Local,
             auth_type: AuthType::None,
             base_url: Some("/repos".into()),
+            organization: None,
             credentials_enc: None,
             selection_mode: SelectionMode::All,
             selection_value: None,

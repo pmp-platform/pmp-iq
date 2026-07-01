@@ -114,6 +114,7 @@
     $f.find("[name=provider_type]").val(a.provider_type);
     $f.find("[name=auth_type]").val(a.auth_type);
     $f.find("[name=base_url]").val(a.base_url || "");
+    $f.find("[name=organization]").val(a.organization || "");
     $f.find("[name=token]").val("").attr("placeholder", "Token (leave blank to keep current)");
     $f.find("[name=selection_mode]").val(a.selection_mode);
     $("#regex-value").val(a.selection_mode === "regex" ? (a.selection_value || "") : "");

@@ -132,9 +132,11 @@ impl FileAnalyzer {
     }
 
     /// Whether a repository-relative path resolves to a real file in the checkout.
+    /// Must be a regular file, not a directory: the model sometimes emits module
+    /// directories as component "files", and the viewer can only read files.
     fn file_exists(&self, checkout_path: &str, rel: &str) -> bool {
         match safe_join(checkout_path, rel) {
-            Ok(path) => self.fs.exists(&path),
+            Ok(path) => self.fs.is_file(&path),
             Err(_) => false,
         }
     }
@@ -250,8 +252,8 @@ mod tests {
         let mut fs = MockFileSystem::new();
         // gather_context probes manifests; none present here.
         fs.expect_read_to_string().returning(|_| Ok(None));
-        // Only paths ending in "real.rs" actually exist in the checkout.
-        fs.expect_exists().returning(|p: &str| p.ends_with("real.rs"));
+        // Only paths ending in "real.rs" resolve to a real file in the checkout.
+        fs.expect_is_file().returning(|p: &str| p.ends_with("real.rs"));
         let analyzer = FileAnalyzer::new(Arc::new(fs));
 
         let mut provider = MockAiProvider::new();

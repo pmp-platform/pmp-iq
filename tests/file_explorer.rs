@@ -55,6 +55,7 @@ async fn file_attribution_and_explorer() {
             provider_type: ProviderType::Github,
             auth_type: AuthType::Token,
             base_url: None,
+            organization: None,
             credentials_enc: None,
             selection_mode: SelectionMode::All,
             selection_value: None,

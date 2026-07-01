@@ -37,7 +37,7 @@
 
   // A small diagram control button (zoom in/out/reset).
   function ctrlBtn(label, title, fn) {
-    return $('<button type="button" class="border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-100"></button>')
+    return $('<button type="button" class="btn btn-secondary btn-sm"></button>')
       .text(label).attr("title", title).on("click", fn);
   }
 
@@ -345,7 +345,7 @@
       $tr.append('<td class="py-2 pr-3">' + esc(c.description || "—") + "</td>");
       $tr.append('<td class="py-2 pr-3 text-slate-500">' + (c.files || []).length + "</td>");
       var $td = $('<td class="py-2"></td>');
-      var $btn = $('<button type="button" class="bg-blue-100 text-blue-700 rounded px-2 py-0.5 text-xs font-medium hover:bg-blue-200">Details</button>');
+      var $btn = $('<button type="button" class="btn btn-primary btn-sm">Details</button>');
       $btn.on("click", function () { if (window.PIFiles) PIFiles.openFiles({ title: c.name, files: c.files || [] }); });
       $tr.append($td.append($btn));
       $tb.append($tr);
@@ -386,7 +386,7 @@
       $tr.append('<td class="py-2 pr-3 text-slate-500">' + files.length + "</td>");
       var $td = $('<td class="py-2"></td>');
       if (files.length) {
-        var $btn = $('<button type="button" class="bg-blue-100 text-blue-700 rounded px-2 py-0.5 text-xs font-medium hover:bg-blue-200">Details</button>');
+        var $btn = $('<button type="button" class="btn btn-primary btn-sm">Details</button>');
         $btn.on("click", function () {
           if (window.PIFiles) PIFiles.openFiles({ title: dep.target_name + " — " + (dep.kind || "call"), files: files });
         });
@@ -439,10 +439,10 @@
     // Always offer a Refresh that re-fetches the detail and re-renders the tabs.
     $actions.append(PI.refreshButton(loadDetail));
     if (!d.repository_id) return;
-    var $ask = $('<button type="button" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">Ask a Question</button>');
+    var $ask = $('<button type="button" class="btn btn-primary btn-sm">Ask a Question</button>');
     $ask.on("click", function () { if (window.PIAsk) PIAsk.open(); });
     $actions.append($ask);
-    var $btn = $('<button type="button" class="bg-emerald-100 text-emerald-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-emerald-200 disabled:opacity-50">Sync</button>');
+    var $btn = $('<button type="button" class="btn btn-success btn-sm">Sync</button>');
     var $note = $('<span class="text-xs text-slate-500"></span>');
     $actions.append($btn).append($note);
     $btn.on("click", function () {
@@ -599,7 +599,7 @@
       var base = "/api/platform/applications/" + d.id + "/metrics";
       $p.html('<div class="bg-white rounded-lg shadow border border-slate-200 p-4">' +
         '<div class="flex items-center justify-between mb-2"><div class="font-semibold">Quality metrics</div>' +
-        '<button id="metrics-collect" type="button" class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200 disabled:opacity-50">Collect</button></div>' +
+        '<button id="metrics-collect" type="button" class="btn btn-primary btn-sm">Collect</button></div>' +
         '<div id="metrics-note" class="text-xs text-slate-500 mb-1"></div>' +
         '<div id="metrics-body" class="text-sm text-slate-500">Loading…</div></div>');
       // Disable Collect while a collection for this app is already queued/running,

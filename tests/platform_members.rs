@@ -23,6 +23,7 @@ async fn setup_app(db: &SqliteDb, full_name: &str, analysis: &str) -> Uuid {
             provider_type: ProviderType::Local,
             auth_type: AuthType::None,
             base_url: Some("/repos".into()),
+            organization: None,
             credentials_enc: None,
             selection_mode: SelectionMode::All,
             selection_value: None,

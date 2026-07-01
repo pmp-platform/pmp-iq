@@ -96,15 +96,35 @@ pub struct GitHubProvider {
     http: Arc<dyn HttpClient>,
     token: Option<String>,
     base_url: String,
+    /// Optional organization to scope repository listing to; `None` lists the
+    /// token's own repositories.
+    organization: Option<String>,
 }
 
 impl GitHubProvider {
-    pub fn new(http: Arc<dyn HttpClient>, token: Option<String>, base_url: Option<String>) -> Self {
+    pub fn new(
+        http: Arc<dyn HttpClient>,
+        token: Option<String>,
+        base_url: Option<String>,
+        organization: Option<String>,
+    ) -> Self {
         Self {
             http,
             token,
             base_url: crate::strings::blank_to_none(base_url)
                 .unwrap_or_else(|| DEFAULT_API.to_string()),
+            organization: crate::strings::blank_to_none(organization),
+        }
+    }
+
+    /// The paginated repository-listing URL: org-scoped when an organization is
+    /// configured, otherwise the token's own repositories.
+    fn repos_url(&self, page: u32) -> String {
+        match &self.organization {
+            Some(org) => {
+                format!("{}/orgs/{org}/repos?per_page=100&page={page}", self.base_url)
+            }
+            None => format!("{}/user/repos?per_page=100&page={page}", self.base_url),
         }
     }
 
@@ -170,7 +190,7 @@ impl RepositoryProvider for GitHubProvider {
     async fn list_repositories(&self) -> Result<Vec<RemoteRepo>, ProviderError> {
         let mut out = Vec::new();
         for page in 1..=MAX_PAGES {
-            let url = format!("{}/user/repos?per_page=100&page={page}", self.base_url);
+            let url = self.repos_url(page);
             let resp = self
                 .http
                 .send(self.request(&url))
@@ -362,7 +382,7 @@ mod tests {
             call += 1;
             Ok(if call == 1 { ok(page1) } else { ok("[]") })
         });
-        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None, None);
         let repos = provider.list_repositories().await.unwrap();
         assert_eq!(repos.len(), 1);
         assert_eq!(repos[0].full_name, "org/api");
@@ -381,7 +401,7 @@ mod tests {
                 call += 1;
                 Ok(if call == 1 { ok(page1) } else { ok("[]") })
             });
-        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None, None);
         let members = provider.list_members("org/api").await.unwrap();
         assert_eq!(members.len(), 2);
         assert_eq!(members[0].username, "alice");
@@ -399,7 +419,7 @@ mod tests {
             call += 1;
             Ok(if call == 1 { ok(r#"[{"login":"carol"}]"#) } else { ok("[]") })
         });
-        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None, None);
         let members = provider.list_members("org/api").await.unwrap();
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].username, "carol");
@@ -413,7 +433,30 @@ mod tests {
         http.expect_send()
             .withf(|req| req.url.starts_with("https://api.github.com/"))
             .returning(|_| Ok(ok("[]")));
-        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), Some("  ".into()));
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), Some("  ".into()), None);
+        assert!(provider.list_repositories().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn organization_scopes_listing_to_org_repos() {
+        let mut http = MockHttpClient::new();
+        http.expect_send()
+            .withf(|req| req.url.contains("/orgs/acme/repos"))
+            .returning(|_| Ok(ok("[]")));
+        let provider =
+            GitHubProvider::new(Arc::new(http), Some("t".into()), None, Some("acme".into()));
+        assert!(provider.list_repositories().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn blank_organization_lists_token_repos() {
+        let mut http = MockHttpClient::new();
+        http.expect_send()
+            .withf(|req| req.url.contains("/user/repos"))
+            .returning(|_| Ok(ok("[]")));
+        // A blank organization is treated as unset (token-scoped listing).
+        let provider =
+            GitHubProvider::new(Arc::new(http), Some("t".into()), None, Some("  ".into()));
         assert!(provider.list_repositories().await.is_ok());
     }
 
@@ -437,7 +480,7 @@ mod tests {
                     r#"{"number":7,"html_url":"https://github.com/org/api/pull/7","state":"open"}"#,
                 ))
             });
-        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None, None);
         let pr = provider.open_pull_request(pr_spec()).await.unwrap();
         assert_eq!(pr.number, 7);
         assert_eq!(pr.url, "https://github.com/org/api/pull/7");
@@ -455,7 +498,7 @@ mod tests {
                 ))
             }
         });
-        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None, None);
         let pr = provider.open_pull_request(pr_spec()).await.unwrap();
         assert_eq!(pr.number, 3);
     }
@@ -466,7 +509,7 @@ mod tests {
         http.expect_send().returning(|_| {
             Ok(ok(r#"{"state":"closed","merged":true,"mergeable":null,"head":{"sha":"abc123"}}"#))
         });
-        let p = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let p = GitHubProvider::new(Arc::new(http), Some("t".into()), None, None);
         let s = p.pull_request_status("org/api", 7).await.unwrap();
         assert_eq!(s.state, "merged");
         assert_eq!(s.head_sha, "abc123");
@@ -480,7 +523,7 @@ mod tests {
             .returning(|_| {
                 Ok(ok(r#"{"check_runs":[{"name":"build","status":"completed","conclusion":"failure"}]}"#))
             });
-        let p = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let p = GitHubProvider::new(Arc::new(http), Some("t".into()), None, None);
         let checks = p.pull_request_checks("org/api", "abc").await.unwrap();
         assert_eq!(checks.len(), 1);
         assert_eq!(checks[0].name, "build");
@@ -497,7 +540,7 @@ mod tests {
                 Ok(ok(r#"[{"id":5,"user":{"login":"alice"},"body":"please fix"}]"#))
             }
         });
-        let p = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let p = GitHubProvider::new(Arc::new(http), Some("t".into()), None, None);
         let comments = p.pull_request_comments("org/api", 7).await.unwrap();
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].author, "alice");
@@ -509,7 +552,7 @@ mod tests {
         let mut http = MockHttpClient::new();
         http.expect_send()
             .returning(|_| Ok(HttpResponse::new(401, "")));
-        let provider = GitHubProvider::new(Arc::new(http), Some("bad".into()), None);
+        let provider = GitHubProvider::new(Arc::new(http), Some("bad".into()), None, None);
         assert!(matches!(provider.validate().await, Err(ProviderError::Auth)));
     }
 
@@ -522,7 +565,7 @@ mod tests {
             resp.headers.insert("x-ratelimit-reset".into(), "1893456000".into());
             Ok(resp)
         });
-        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None);
+        let provider = GitHubProvider::new(Arc::new(http), Some("t".into()), None, None);
         match provider.validate().await {
             Err(ProviderError::RateLimited { retry_at }) => assert!(retry_at.is_some()),
             other => panic!("expected RateLimited, got {other:?}"),

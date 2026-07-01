@@ -118,6 +118,9 @@ pub struct RepositoryAccount {
     pub provider_type: ProviderType,
     pub auth_type: AuthType,
     pub base_url: Option<String>,
+    /// Optional organization/group namespace; when set, repositories are listed
+    /// from it instead of the token's own account.
+    pub organization: Option<String>,
     pub credentials_enc: Option<Vec<u8>>,
     pub selection_mode: SelectionMode,
     pub selection_value: Option<String>,
@@ -131,6 +134,7 @@ pub struct AccountInput {
     pub provider_type: ProviderType,
     pub auth_type: AuthType,
     pub base_url: Option<String>,
+    pub organization: Option<String>,
     pub credentials_enc: Option<Vec<u8>>,
     pub selection_mode: SelectionMode,
     pub selection_value: Option<String>,

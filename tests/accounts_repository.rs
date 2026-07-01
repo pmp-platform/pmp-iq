@@ -12,6 +12,7 @@ fn input(name: &str) -> AccountInput {
         provider_type: ProviderType::Github,
         auth_type: AuthType::Token,
         base_url: None,
+        organization: Some("acme".into()),
         credentials_enc: Some(vec![1, 2, 3, 4]),
         selection_mode: SelectionMode::Regex,
         selection_value: Some("^org/".into()),
@@ -28,9 +29,11 @@ async fn crud_round_trip() {
     assert_eq!(created.name, "gh");
     assert_eq!(created.provider_type, ProviderType::Github);
     assert_eq!(created.credentials_enc, Some(vec![1, 2, 3, 4]));
+    assert_eq!(created.organization.as_deref(), Some("acme"));
 
     let fetched = repo.get(created.id).await.unwrap();
     assert_eq!(fetched.id, created.id);
+    assert_eq!(fetched.organization.as_deref(), Some("acme"));
 
     let mut upd = input("gh-renamed");
     upd.enabled = false;

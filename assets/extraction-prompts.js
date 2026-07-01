@@ -21,7 +21,7 @@
     var placeholders = s.required_placeholders && s.required_placeholders.length
       ? "Required: " + s.required_placeholders.join(", ") : "";
 
-    var $save = $('<button class="bg-blue-100 text-blue-700 rounded px-2.5 py-1 text-xs font-medium hover:bg-blue-200">').text("Save");
+    var $save = $('<button class="btn btn-primary btn-sm">').text("Save");
     $save.on("click", function () {
       $.ajax({
         url: "/api/settings/extraction-prompts/" + encodeURIComponent(s.section),

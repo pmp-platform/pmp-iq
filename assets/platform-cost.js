@@ -54,7 +54,7 @@
     var $scopeId = $('<input class="border rounded text-xs p-1 w-28" placeholder="scope id (uuid)">');
     var $limit = $('<input type="number" min="0" step="0.01" class="border rounded text-xs p-1 w-20" placeholder="USD">');
     var $hard = $('<input type="checkbox">');
-    var $add = $('<button class="text-xs bg-blue-600 text-white rounded px-2 py-1">').text("Add");
+    var $add = $('<button class="btn btn-primary btn-sm">').text("Add");
     $add.on("click", function () {
       var payload = { scope: $scope.val(), period: $period.val(), limit_usd: parseFloat($limit.val()), hard_stop: $hard.is(":checked") };
       if ($scopeId.val()) { payload.scope_id = $scopeId.val(); }

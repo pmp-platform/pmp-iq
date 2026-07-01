@@ -31,6 +31,7 @@ async fn hints_persist_across_resync_and_support_crud() {
             provider_type: ProviderType::Github,
             auth_type: AuthType::Token,
             base_url: None,
+            organization: None,
             credentials_enc: None,
             selection_mode: SelectionMode::All,
             selection_value: None,

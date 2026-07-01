@@ -48,6 +48,7 @@ pub const PG_MIGRATIONS: Migrations = &[
     ("033_techradar", include_str!("../../db/migrations/20260101000033_techradar.sql")),
     ("034_remediation", include_str!("../../db/migrations/20260101000034_remediation.sql")),
     ("035_dora", include_str!("../../db/migrations/20260101000035_dora.sql")),
+    ("036_repository_account_organization", include_str!("../../db/migrations/20260101000036_add_repository_account_organization.sql")),
 ];
 
 /// Embedded SQLite migrations (dbmate format).
@@ -87,6 +88,7 @@ pub const SQLITE_MIGRATIONS: Migrations = &[
     ("033_techradar", include_str!("../../db/migrations_sqlite/20260101000033_techradar.sql")),
     ("034_remediation", include_str!("../../db/migrations_sqlite/20260101000034_remediation.sql")),
     ("035_dora", include_str!("../../db/migrations_sqlite/20260101000035_dora.sql")),
+    ("036_repository_account_organization", include_str!("../../db/migrations_sqlite/20260101000036_add_repository_account_organization.sql")),
 ];
 
 /// Migrations matching the database's engine.

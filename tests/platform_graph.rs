@@ -37,6 +37,7 @@ async fn seed(db: &TestDb, name: &str, json: &str) {
             provider_type: ProviderType::Local,
             auth_type: AuthType::None,
             base_url: Some("/r".into()),
+            organization: None,
             credentials_enc: None,
             selection_mode: SelectionMode::All,
             selection_value: None,

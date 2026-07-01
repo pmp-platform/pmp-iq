@@ -44,6 +44,7 @@ async fn seed(db: &pmp_iq::db::Database, name: &str, analysis: &str) -> Uuid {
             provider_type: ProviderType::Github,
             auth_type: AuthType::Token,
             base_url: None,
+            organization: None,
             credentials_enc: None,
             selection_mode: SelectionMode::All,
             selection_value: None,

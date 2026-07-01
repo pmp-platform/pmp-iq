@@ -7,7 +7,7 @@
 <div class="bg-white rounded-lg shadow border border-slate-200 p-3 mb-4">
   <div class="flex items-center justify-between mb-2">
     <div class="text-sm font-semibold">Proposed remediations</div>
-    <button id="rem-evaluate" class="bg-blue-600 text-white rounded px-2 py-1 text-xs">Evaluate now</button>
+    <button id="rem-evaluate" class="btn btn-primary btn-sm">Evaluate now</button>
   </div>
   <div id="remediations" class="text-sm text-slate-500">Loading…</div>
 </div>
@@ -26,7 +26,7 @@
     <input id="rule-params" class="border rounded p-1 font-mono" placeholder='params e.g. {"metric":"coverage_pct","threshold":70}'>
     <input id="rule-prompt" class="border rounded p-1" placeholder="agent prompt">
   </div>
-  <button id="rule-add" class="bg-blue-600 text-white rounded px-2 py-1 mt-2 text-xs">Add rule</button>
+  <button id="rule-add" class="btn btn-primary btn-sm mt-2">Add rule</button>
 </div>
 
 <script src="/assets/remediation.js?v={{ asset_version }}" defer></script>
